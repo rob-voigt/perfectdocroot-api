@@ -14,12 +14,15 @@ const config = {
 
   serviceName: process.env.PDR_SERVICE_NAME || 'pdr-api',
   envName: process.env.PDR_ENV || 'api-dev',
+  publicBaseUrl: (process.env.PDR_PUBLIC_BASEURL || '').trim(),
 
-  // Optional now; useful for absolute links later (artifacts, docs, etc.)
-  publicBaseUrl: process.env.PDR_PUBLIC_BASEURL || ''
+  db: {
+    host: required('DB_HOST'),
+    user: required('DB_USER'),
+    password: required('DB_PASS'),
+    database: required('DB_NAME'),
+    port: Number(process.env.DB_PORT || 3306)
+  }
 };
-
-// If you want to force base URL later, swap to:
-// config.publicBaseUrl = required('PDR_PUBLIC_BASEURL');
 
 module.exports = { config };
