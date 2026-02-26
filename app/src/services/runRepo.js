@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
+const { validateInput } = require('./validationService');
 
 function nowIso() {
   return new Date().toISOString();
@@ -30,6 +31,7 @@ function mysqlDatetime3ToIso(dt) {
 async function createRun({ domain_id, contract_version, input_payload }) {
   const id = crypto.randomUUID();
   const created_at_iso = nowIso();
+  const validation_report = validateInput({ domain_id, contract_version, input_payload });
 
   // Phase 1: sync complete
   const status = 'complete';
@@ -45,9 +47,9 @@ async function createRun({ domain_id, contract_version, input_payload }) {
 
   const sql = `
     INSERT INTO runs
-      (id, status, domain_id, contract_version, input_payload, result_json, created_at, completed_at)
+      (id, status, domain_id, contract_version, input_payload, validation_report, result_json, created_at, completed_at)
     VALUES
-      (:id, :status, :domain_id, :contract_version, :input_payload, :result_json, :created_at, :completed_at)
+      (:id, :status, :domain_id, :contract_version, :input_payload, :validation_report, :result_json, :created_at, :completed_at)
   `;
 
   await pool.execute(sql, {
@@ -56,6 +58,7 @@ async function createRun({ domain_id, contract_version, input_payload }) {
     domain_id,
     contract_version,
     input_payload: JSON.stringify(input_payload),
+    validation_report: JSON.stringify(validation_report),
     result_json: JSON.stringify(result),
     created_at,
     completed_at
@@ -68,13 +71,14 @@ async function createRun({ domain_id, contract_version, input_payload }) {
     contract_version,
     created_at: created_at_iso,
     completed_at: completed_at_iso,
+    validation_report,
     result
   };
 }
 
 async function getRun(id) {
   const [rows] = await pool.execute(
-    `SELECT id, status, domain_id, contract_version, input_payload, result_json, created_at, completed_at
+    `SELECT id, status, domain_id, contract_version, input_payload, validation_report, result_json, created_at, completed_at
      FROM runs WHERE id = ? LIMIT 1`,
     [id]
   );
@@ -89,6 +93,11 @@ async function getRun(id) {
   const result =
     r.result_json ? (typeof r.result_json === 'string' ? JSON.parse(r.result_json) : r.result_json) : null;
 
+  const validation_report =
+    r.validation_report
+      ? (typeof r.validation_report === 'string' ? JSON.parse(r.validation_report) : r.validation_report)
+      : null;
+
   return {
     id: r.id,
     status: r.status,
@@ -96,6 +105,7 @@ async function getRun(id) {
     contract_version: r.contract_version,
     created_at: mysqlDatetime3ToIso(r.created_at),
     completed_at: r.completed_at ? mysqlDatetime3ToIso(r.completed_at) : null,
+    validation_report,
     result
   };
 }
