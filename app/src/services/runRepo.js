@@ -5,7 +5,8 @@ const { config } = require('../config');
 
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
-const { validateInput } = require('./validationService');
+const { getContract } = require('./contractRepo');
+const { validateAgainstSchema } = require('./schemaValidate');
 const { createArtifact } = require('./artifactRepo');
 
 function nowIso() {
@@ -33,6 +34,14 @@ function mysqlDatetime3ToIso(dt) {
 }
 
 async function createRun({ domain_id, contract_version, input_payload, correlation_id }) {
+  const contract = await getContract({ domain_id, contract_version });
+  if (!contract) {
+    const err = new Error('Contract not found for domain_id and contract_version');
+    err.statusCode = 400;
+    err.code = 'contract_not_found';
+    throw err;
+  }
+
   const id = crypto.randomUUID();
   const created_at_iso = nowIso();
 
@@ -40,8 +49,20 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
   const status = 'complete';
   const completed_at_iso = nowIso();
 
+  const { ok, issues } = validateAgainstSchema(contract.schema, input_payload);
+  const pass = !!ok;
+  const score = pass ? 100 : Math.max(0, 100 - issues.length * 10);
+
   // Validation (full report stored for audit)
-  const validation_report = validateInput({ domain_id, contract_version, input_payload });
+  const validation_report = {
+    report_id: crypto.randomUUID(),
+    domain_id,
+    contract_version,
+    pass,
+    score,
+    issues,
+    created_at: nowIso()
+  };
 
   // Result (update message to reflect MS05)
   const result = {
@@ -111,6 +132,16 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
     run_id: id,
     artifact_type: 'validation_report',
     content: validation_report
+  });
+
+  await createArtifact({
+    run_id: id,
+    artifact_type: 'contract_snapshot',
+    content: {
+      domain_id,
+      contract_version,
+      schema_hash: contract.schema_hash
+    }
   });
 
   return {

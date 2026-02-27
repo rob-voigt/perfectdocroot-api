@@ -13,6 +13,7 @@
     "dev": "node src/server.js"
   },
   "dependencies": {
+    "ajv": "^8.18.0",
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "helmet": "^7.1.0",
