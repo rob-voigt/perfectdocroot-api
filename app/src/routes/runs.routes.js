@@ -2,10 +2,12 @@
 
 const express = require('express');
 const { createRun, getRun } = require('../services/runRepo');
+const { requireApiKey } = require('../middleware/auth');
+const { rateLimit } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
-router.post('/runs', async (req, res, next) => {
+router.post('/runs', requireApiKey, rateLimit({ windowMs: 60_000, max: 20 }), async (req, res, next) => {
   try {
     const body = req.body || {};
 

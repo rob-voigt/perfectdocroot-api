@@ -2,10 +2,12 @@
 
 const express = require('express');
 const { validateInput } = require('../services/validationService');
+const { requireApiKey } = require('../middleware/auth');
+const { rateLimit } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
-router.post('/validate', (req, res) => {
+router.post('/validate', requireApiKey, rateLimit({ windowMs: 60_000, max: 60 }), (req, res) => {
   const body = req.body || {};
 
   const domain_id = typeof body.domain_id === 'string' ? body.domain_id.trim() : '';
