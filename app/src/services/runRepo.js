@@ -6,6 +6,7 @@ const { config } = require('../config');
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
 const { validateInput } = require('./validationService');
+const { createArtifact } = require('./artifactRepo');
 
 function nowIso() {
   return new Date().toISOString();
@@ -44,7 +45,7 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
 
   // Result (update message to reflect MS05)
   const result = {
-    message: 'Run created (MS05 provenance + hashes)',
+    message: 'Run created (MS06 artifacts emitted)',
     input_payload
   };
 
@@ -104,6 +105,12 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
     provenance: JSON.stringify(provenance),
     created_at,
     completed_at
+  });
+
+  await createArtifact({
+    run_id: id,
+    artifact_type: 'validation_report',
+    content: validation_report
   });
 
   return {

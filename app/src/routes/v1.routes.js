@@ -3,6 +3,7 @@
 const express = require('express');
 const { runsRouter } = require('./runs.routes');
 const { validateRouter } = require('./validate.routes');
+const { artifactsRouter } = require('./artifacts.routes');
 
 const router = express.Router();
 
@@ -17,5 +18,5 @@ router.get('/', (req, res) => {
 // v1 routes
 router.use(runsRouter);
 router.use(validateRouter);
-
+router.use(artifactsRouter);
 module.exports = { v1Router: router };
