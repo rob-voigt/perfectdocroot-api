@@ -28,7 +28,12 @@ router.post('/runs', async (req, res, next) => {
       });
     }
 
-    const run = await createRun({ domain_id, contract_version, input_payload });
+    const run = await createRun({
+      domain_id,
+      contract_version,
+      input_payload,
+      correlation_id: req.requestId
+    });
     return res.status(201).json({ run, requestId: req.requestId });
   } catch (err) {
     return next(err);

@@ -15,6 +15,9 @@ const config = {
   serviceName: process.env.PDR_SERVICE_NAME || 'pdr-api',
   envName: process.env.PDR_ENV || 'api-dev',
   publicBaseUrl: (process.env.PDR_PUBLIC_BASEURL || '').trim(),
+  apiVersion: process.env.PDR_API_VERSION || '0.1',
+  buildSha: process.env.PDR_BUILD_SHA || '',
+  runtime: process.env.PDR_RUNTIME || '',
 
   db: {
     host: required('DB_HOST'),

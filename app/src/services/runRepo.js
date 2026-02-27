@@ -1,5 +1,8 @@
 'use strict';
 
+const { sha256HexFromObject } = require('../utils/hash');
+const { config } = require('../config');
+
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
 const { validateInput } = require('./validationService');
@@ -28,18 +31,47 @@ function mysqlDatetime3ToIso(dt) {
   return d.toISOString();
 }
 
-async function createRun({ domain_id, contract_version, input_payload }) {
+async function createRun({ domain_id, contract_version, input_payload, correlation_id }) {
   const id = crypto.randomUUID();
   const created_at_iso = nowIso();
-  const validation_report = validateInput({ domain_id, contract_version, input_payload });
 
   // Phase 1: sync complete
   const status = 'complete';
   const completed_at_iso = nowIso();
 
+  // Validation (full report stored for audit)
+  const validation_report = validateInput({ domain_id, contract_version, input_payload });
+
+  // Result (update message to reflect MS05)
   const result = {
-    message: 'Run created (MS03 persisted stub)',
+    message: 'Run created (MS05 provenance + hashes)',
     input_payload
+  };
+
+  // Deterministic hashes:
+  // IMPORTANT: do NOT include report_id or created_at in hashed output.
+  const input_for_hash = { domain_id, contract_version, input_payload };
+  const input_hash = sha256HexFromObject(input_for_hash);
+
+  const output_for_hash = {
+    validation: {
+      pass: validation_report.pass,
+      score: validation_report.score,
+      issues: validation_report.issues
+    },
+    result
+  };
+  const output_hash = sha256HexFromObject(output_for_hash);
+
+  const provenance = {
+    api_version: config.apiVersion || '0.1',
+    build_sha: config.buildSha || '',
+    runtime: config.runtime || '',
+    node: process.version,
+    timings: {
+      created_at: created_at_iso,
+      completed_at: completed_at_iso
+    }
   };
 
   const created_at = isoToMysqlDatetime3(created_at_iso);
@@ -47,39 +79,58 @@ async function createRun({ domain_id, contract_version, input_payload }) {
 
   const sql = `
     INSERT INTO runs
-      (id, status, domain_id, contract_version, input_payload, validation_report, result_json, created_at, completed_at)
+      (id, correlation_id, input_hash, output_hash,
+       status, domain_id, contract_version,
+       input_payload, result_json, validation_report, provenance,
+       created_at, completed_at)
     VALUES
-      (:id, :status, :domain_id, :contract_version, :input_payload, :validation_report, :result_json, :created_at, :completed_at)
+      (:id, :correlation_id, :input_hash, :output_hash,
+       :status, :domain_id, :contract_version,
+       :input_payload, :result_json, :validation_report, :provenance,
+       :created_at, :completed_at)
   `;
 
   await pool.execute(sql, {
     id,
+    correlation_id: correlation_id || null,
+    input_hash,
+    output_hash,
     status,
     domain_id,
     contract_version,
     input_payload: JSON.stringify(input_payload),
-    validation_report: JSON.stringify(validation_report),
     result_json: JSON.stringify(result),
+    validation_report: JSON.stringify(validation_report),
+    provenance: JSON.stringify(provenance),
     created_at,
     completed_at
   });
 
   return {
     id,
+    correlation_id: correlation_id || null,
+    input_hash,
+    output_hash,
     status,
     domain_id,
     contract_version,
     created_at: created_at_iso,
     completed_at: completed_at_iso,
     validation_report,
+    provenance,
     result
   };
 }
 
 async function getRun(id) {
   const [rows] = await pool.execute(
-    `SELECT id, status, domain_id, contract_version, input_payload, validation_report, result_json, created_at, completed_at
-     FROM runs WHERE id = ? LIMIT 1`,
+    `SELECT id, correlation_id, input_hash, output_hash,
+            status, domain_id, contract_version,
+            input_payload, result_json, validation_report, provenance,
+            created_at, completed_at
+     FROM runs
+     WHERE id = ?
+     LIMIT 1`,
     [id]
   );
 
@@ -98,14 +149,21 @@ async function getRun(id) {
       ? (typeof r.validation_report === 'string' ? JSON.parse(r.validation_report) : r.validation_report)
       : null;
 
+  const provenance =
+    r.provenance ? (typeof r.provenance === 'string' ? JSON.parse(r.provenance) : r.provenance) : null;
+
   return {
     id: r.id,
+    correlation_id: r.correlation_id,
+    input_hash: r.input_hash,
+    output_hash: r.output_hash,
     status: r.status,
     domain_id: r.domain_id,
     contract_version: r.contract_version,
     created_at: mysqlDatetime3ToIso(r.created_at),
     completed_at: r.completed_at ? mysqlDatetime3ToIso(r.completed_at) : null,
     validation_report,
+    provenance,
     result
   };
 }
