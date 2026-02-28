@@ -148,7 +148,7 @@ async function getRun(id) {
   const [rows] = await pool.execute(
     `SELECT id, correlation_id, input_hash, output_hash,
             status, domain_id, contract_version,
-            input_payload, result_json, validation_report, provenance,
+            input_payload, working_payload, result_json, validation_report, provenance,
             created_at, completed_at
      FROM runs
      WHERE id = ?
@@ -168,6 +168,11 @@ async function getRun(id) {
   
   const input_payload =
     r.input_payload ? (typeof r.input_payload === 'string' ? JSON.parse(r.input_payload) : r.input_payload) : {};
+
+  const working_payload =
+    r.working_payload == null
+      ? null
+      : (typeof r.working_payload === 'string' ? JSON.parse(r.working_payload) : r.working_payload);
 
   const result =
     r.result_json ? (typeof r.result_json === 'string' ? JSON.parse(r.result_json) : r.result_json) : null;
@@ -192,7 +197,8 @@ async function getRun(id) {
     completed_at: r.completed_at ? mysqlDatetime3ToIso(r.completed_at) : null,
     validation_report,
     provenance,
-    result
+    result,
+    working_payload
   };
 }
 
