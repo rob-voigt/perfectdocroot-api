@@ -68,7 +68,7 @@ async function markRunFailedFromExecutorCrash(run_id, err) {
   console.error('executeRun failed', { run_id, error: err?.message });
 }
 
-async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync' }) {
+async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync', repair = {} }) {
   const contract = await getContract({ domain_id, contract_version });
   if (!contract) {
     const err = new Error('Contract not found for domain_id and contract_version');
@@ -85,12 +85,17 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
 
   const created_at = isoToMysqlDatetime3(created_at_iso);
 
+  // Prepare repair config
+  let enabled = typeof repair.enabled === 'boolean' ? repair.enabled : false;
+  let max_attempts = Number.isFinite(repair.max_attempts) ? Math.max(0, Math.min(5, Math.floor(repair.max_attempts))) : 2;
+  const repair_json = JSON.stringify({ enabled, max_attempts });
+
   // Insert minimal run record first (no output yet)
   const sql = `
     INSERT INTO runs
-      (id, correlation_id, status, domain_id, contract_version, input_payload, created_at)
+      (id, correlation_id, status, domain_id, contract_version, input_payload, created_at, repair_json)
     VALUES
-      (:id, :correlation_id, :status, :domain_id, :contract_version, :input_payload, :created_at)
+      (:id, :correlation_id, :status, :domain_id, :contract_version, :input_payload, :created_at, :repair_json)
   `;
 
   await pool.execute(sql, {
@@ -100,7 +105,8 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
     domain_id,
     contract_version,
     input_payload: JSON.stringify(input_payload),
-    created_at
+    created_at,
+    repair_json
   });
 
   // Emit contract snapshot immediately (useful even before completion)
