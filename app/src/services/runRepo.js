@@ -2,6 +2,7 @@
 
 const { sha256HexFromObject } = require('../utils/hash');
 const { config } = require('../config');
+const { executeRun } = require('./runOrchestrator');
 
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
@@ -28,12 +29,45 @@ function isoToMysqlDatetime3(iso) {
 }
 
 function mysqlDatetime3ToIso(dt) {
-  // dt may be Date or string depending on mysql2 settings
-  const d = dt instanceof Date ? dt : new Date(dt);
-  return d.toISOString();
+  if (!dt) return null;
+
+  // mysql2 may return a JS Date depending on config
+  if (dt instanceof Date) return dt.toISOString();
+
+  const s = String(dt).trim();
+
+  // Expect "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM:SS.mmm"
+  const [datePart, timePartRaw] = s.split(' ');
+  if (!datePart || !timePartRaw) {
+    // Fallback for unexpected formats
+    return new Date(s).toISOString();
+  }
+
+  const [y, m, d] = datePart.split('-').map((v) => Number(v));
+  const [hms, msRaw] = timePartRaw.split('.');
+  const [hh, mm, ss] = hms.split(':').map((v) => Number(v));
+  const ms = msRaw ? Number(String(msRaw).padEnd(3, '0').slice(0, 3)) : 0;
+
+  return new Date(Date.UTC(y, m - 1, d, hh, mm, ss, ms)).toISOString();
 }
 
-async function createRun({ domain_id, contract_version, input_payload, correlation_id }) {
+async function markRunFailedFromExecutorCrash(run_id, err) {
+  const completed_at = isoToMysqlDatetime3(nowIso());
+
+  await pool.execute(
+    `UPDATE runs
+        SET status = ?,
+            completed_at = ?
+      WHERE id = ?
+        AND status IN ('queued', 'running', 'validating')
+      LIMIT 1`,
+    ['failed', completed_at, run_id]
+  );
+
+  console.error('executeRun failed', { run_id, error: err?.message });
+}
+
+async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync' }) {
   const contract = await getContract({ domain_id, contract_version });
   if (!contract) {
     const err = new Error('Contract not found for domain_id and contract_version');
@@ -45,95 +79,30 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
   const id = crypto.randomUUID();
   const created_at_iso = nowIso();
 
-  // Phase 1: sync complete
-  const status = 'complete';
-  const completed_at_iso = nowIso();
-
-  const { ok, issues } = validateAgainstSchema(contract.schema, input_payload);
-  const pass = !!ok;
-  const score = pass ? 100 : Math.max(0, 100 - issues.length * 10);
-
-  // Validation (full report stored for audit)
-  const validation_report = {
-    report_id: crypto.randomUUID(),
-    domain_id,
-    contract_version,
-    pass,
-    score,
-    issues,
-    created_at: nowIso()
-  };
-
-  // Result (update message to reflect MS05)
-  const result = {
-    message: 'Run created (MS06 artifacts emitted)',
-    input_payload
-  };
-
-  // Deterministic hashes:
-  // IMPORTANT: do NOT include report_id or created_at in hashed output.
-  const input_for_hash = { domain_id, contract_version, input_payload };
-  const input_hash = sha256HexFromObject(input_for_hash);
-
-  const output_for_hash = {
-    validation: {
-      pass: validation_report.pass,
-      score: validation_report.score,
-      issues: validation_report.issues
-    },
-    result
-  };
-  const output_hash = sha256HexFromObject(output_for_hash);
-
-  const provenance = {
-    api_version: config.apiVersion || '0.1',
-    build_sha: config.buildSha || '',
-    runtime: config.runtime || '',
-    node: process.version,
-    timings: {
-      created_at: created_at_iso,
-      completed_at: completed_at_iso
-    }
-  };
+  // MS10: queued for async; running for sync
+  const status = execution_mode === 'async' ? 'queued' : 'running';
 
   const created_at = isoToMysqlDatetime3(created_at_iso);
-  const completed_at = isoToMysqlDatetime3(completed_at_iso);
 
+  // Insert minimal run record first (no output yet)
   const sql = `
     INSERT INTO runs
-      (id, correlation_id, input_hash, output_hash,
-       status, domain_id, contract_version,
-       input_payload, result_json, validation_report, provenance,
-       created_at, completed_at)
+      (id, correlation_id, status, domain_id, contract_version, input_payload, created_at)
     VALUES
-      (:id, :correlation_id, :input_hash, :output_hash,
-       :status, :domain_id, :contract_version,
-       :input_payload, :result_json, :validation_report, :provenance,
-       :created_at, :completed_at)
+      (:id, :correlation_id, :status, :domain_id, :contract_version, :input_payload, :created_at)
   `;
 
   await pool.execute(sql, {
     id,
     correlation_id: correlation_id || null,
-    input_hash,
-    output_hash,
     status,
     domain_id,
     contract_version,
     input_payload: JSON.stringify(input_payload),
-    result_json: JSON.stringify(result),
-    validation_report: JSON.stringify(validation_report),
-    provenance: JSON.stringify(provenance),
-    created_at,
-    completed_at
+    created_at
   });
 
-  await createArtifact({
-    run_id: id,
-    artifact_type: 'validation_report',
-    content: validation_report
-  });
-
+  // Emit contract snapshot immediately (useful even before completion)
   await createArtifact({
     run_id: id,
     artifact_type: 'contract_snapshot',
@@ -144,20 +113,35 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
     }
   });
 
-  return {
-    id,
-    correlation_id: correlation_id || null,
-    input_hash,
-    output_hash,
-    status,
-    domain_id,
-    contract_version,
-    created_at: created_at_iso,
-    completed_at: completed_at_iso,
-    validation_report,
-    provenance,
-    result
-  };
+  if (execution_mode === 'async') {
+    // Fire-and-forget background execution (Phase 1)
+    setImmediate(() => {
+      executeRun(id).catch((e) => {
+        markRunFailedFromExecutorCrash(id, e).catch((markErr) => {
+          console.error('markRunFailedFromExecutorCrash failed', {
+            run_id: id,
+            error: markErr?.message,
+            original_error: e?.message
+          });
+        });
+      });
+    });
+
+    // Return minimal queued run response
+    return {
+      id,
+      correlation_id: correlation_id || null,
+      status,
+      domain_id,
+      contract_version,
+      created_at: created_at_iso,
+      completed_at: null
+    };
+  }
+
+  // Sync mode: execute now then return hydrated run
+  await executeRun(id);
+  return await getRun(id);
 }
 
 async function getRun(id) {
@@ -176,6 +160,12 @@ async function getRun(id) {
 
   const r = rows[0];
 
+  console.log('DEBUG created_at type', {
+  type: typeof r.created_at,
+  isDate: r.created_at instanceof Date,
+  value: r.created_at
+  });
+  
   const input_payload =
     r.input_payload ? (typeof r.input_payload === 'string' ? JSON.parse(r.input_payload) : r.input_payload) : {};
 

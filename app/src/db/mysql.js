@@ -9,6 +9,7 @@ const pool = mysql.createPool({
   password: config.db.password,
   database: config.db.database,
   port: config.db.port,
+  dateStrings: true,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { createRun, getRun } = require('../services/runRepo');
+const { listStepsByRun } = require('../services/stepRepo');
 const { requireApiKey } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/rateLimit');
 
@@ -22,6 +23,11 @@ router.post('/runs', requireApiKey, rateLimit({ windowMs: 60_000, max: 20 }), as
         ? body.input_payload
         : {};
 
+    const execution_mode =
+      body.execution && typeof body.execution === 'object' && body.execution.mode === 'async'
+        ? 'async'
+        : 'sync';
+
     if (!domain_id) {
       return res.status(400).json({
         error: 'validation_error',
@@ -34,15 +40,17 @@ router.post('/runs', requireApiKey, rateLimit({ windowMs: 60_000, max: 20 }), as
       domain_id,
       contract_version,
       input_payload,
-      correlation_id: req.requestId
+      correlation_id: req.requestId,
+      execution_mode
     });
-    return res.status(201).json({ run, requestId: req.requestId });
+    const statusCode = execution_mode === 'async' ? 202 : 201;
+    return res.status(statusCode).json({ run, requestId: req.requestId });
   } catch (err) {
     return next(err);
   }
 });
 
-router.get('/runs/:id', async (req, res, next) => {
+router.get('/runs/:id', requireApiKey, async (req, res, next) => {
   try {
     const run = await getRun(req.params.id);
 
@@ -55,6 +63,25 @@ router.get('/runs/:id', async (req, res, next) => {
     }
 
     return res.status(200).json({ run, requestId: req.requestId });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get('/runs/:id/steps', requireApiKey, async (req, res, next) => {
+  try {
+    const run = await getRun(req.params.id);
+
+    if (!run) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'run not found',
+        requestId: req.requestId
+      });
+    }
+
+    const steps = await listStepsByRun(req.params.id);
+    return res.status(200).json({ steps, requestId: req.requestId });
   } catch (err) {
     return next(err);
   }
