@@ -6,6 +6,7 @@ const { validateRouter } = require('./validate.routes');
 const { artifactsRouter } = require('./artifacts.routes');
 const { contractsRouter } = require('./contracts.routes');
 const { metaRouter } = require('./meta.routes');
+const { debugExecRouter } = require('./debugExec.routes');
 
 const router = express.Router();
 
@@ -23,4 +24,7 @@ router.use(validateRouter);
 router.use(artifactsRouter);
 router.use(contractsRouter);
 router.use(metaRouter);
+if (process.env.NODE_ENV !== 'production') {
+  router.use('/debug-exec', debugExecRouter);
+}
 module.exports = { v1Router: router };

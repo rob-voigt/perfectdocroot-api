@@ -2,6 +2,7 @@
 
 const { sha256HexFromObject } = require('../utils/hash');
 const { config } = require('../config');
+const executionEngine = require('../execution/executionEngine');
 const { executeRun } = require('./runOrchestrator');
 
 const crypto = require('crypto');
@@ -114,18 +115,17 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
   });
 
   if (execution_mode === 'async') {
-    // Fire-and-forget background execution (Phase 1)
-    setImmediate(() => {
-      executeRun(id).catch((e) => {
-        markRunFailedFromExecutorCrash(id, e).catch((markErr) => {
-          console.error('markRunFailedFromExecutorCrash failed', {
-            run_id: id,
-            error: markErr?.message,
-            original_error: e?.message
-          });
+    try {
+      executionEngine.enqueue(id);
+    } catch (e) {
+      markRunFailedFromExecutorCrash(id, e).catch((markErr) => {
+        console.error('markRunFailedFromExecutorCrash failed', {
+          run_id: id,
+          error: markErr?.message,
+          original_error: e?.message
         });
       });
-    });
+    }
 
     // Return minimal queued run response
     return {

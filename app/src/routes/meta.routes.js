@@ -3,6 +3,8 @@
 const express = require('express');
 const { config } = require('../config');
 const { pool } = require('../db/mysql');
+const { requireApiKey } = require('../middleware/auth');
+const executionEngine = require('../execution/executionEngine');
 
 const router = express.Router();
 
@@ -36,5 +38,29 @@ router.get('/meta', async (req, res, next) => {
     next(err);
   }
 });
+
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/meta/idempotence/:id', requireApiKey, async (req, res) => {
+    const run_id = req.params.id;
+
+    try {
+      const settled = await Promise.allSettled([
+        executionEngine.start(run_id),
+        executionEngine.start(run_id)
+      ]);
+
+      const results = settled.map((r) => ({
+        status: r.status,
+        reason: r.status === 'rejected' ? (r.reason?.message || String(r.reason)) : null
+      }));
+
+      return res.status(200).json({ run_id, results, requestId: req.requestId });
+    } catch (err) {
+      const results = [{ status: 'rejected', reason: err?.message || 'Unknown error' }];
+      return res.status(200).json({ run_id, results, requestId: req.requestId });
+    }
+  });
+
+}
 
 module.exports = { metaRouter: router };
