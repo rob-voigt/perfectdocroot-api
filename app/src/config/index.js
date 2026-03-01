@@ -10,7 +10,7 @@ function required(name) {
 
 const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: Number(process.env.PORT || 3000),
+  port: Number(process.env.PORT || 3306),
 
   serviceName: process.env.PDR_SERVICE_NAME || 'pdr-api',
   envName: process.env.PDR_ENV || 'api-dev',

@@ -1,6 +1,7 @@
 'use strict';
 
-const uuidv4 = () => globalThis.crypto.randomUUID();
+const crypto = require('crypto');
+const uuidv4 = () => (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex'));
 const { pool } = require('../db/mysql');
 
 /**

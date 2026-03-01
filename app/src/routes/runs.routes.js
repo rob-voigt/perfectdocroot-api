@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const { processRun } = require('../execution/executionEngine');
 
 const { createRun, getRun } = require('../services/runRepo');
 const { requireApiKey } = require('../middleware/auth');
@@ -97,11 +98,20 @@ router.post(
         input_payload,
         correlation_id: req.requestId,
         execution_mode,
-        repair
+        repair,
+        // MS14: explicit initial status
+        status: execution_mode === 'async' ? 'queued' : 'running'
       });
 
-      const statusCode = execution_mode === 'async' ? 202 : 201;
-      return res.status(statusCode).json({ run, requestId: req.requestId });
+if (execution_mode === 'async') {
+  return res.status(202).json({ run, requestId: req.requestId });
+}
+
+// sync: execute inline then return final persisted run
+await processRun(run.id);
+const finalRun = await getRun(run.id);
+
+return res.status(201).json({ run: finalRun || run, requestId: req.requestId });
     } catch (err) {
       return next(err);
     }

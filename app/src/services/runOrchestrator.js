@@ -114,8 +114,6 @@ async function executeRun(run_id) {
     }
   }
 
-  // status -> validating
-  await pool.execute(`UPDATE runs SET status = ? WHERE id = ? LIMIT 1`, ['validating', run_id]);
 
   // Contract lookup
   let completed_at_iso = null;
@@ -249,12 +247,12 @@ async function executeRun(run_id) {
       score: final_validation_report?.score,
       issues: final_validation_report?.issues
     },
-    result: { message: 'Run executed (MS13 repair loop)', candidate }
+    result: { message: 'Run executed (MS14 async lifecycle)', candidate }
   };
   const final_output_hash = sha256HexFromObject(output_for_hash);
 
   const final_result = {
-    message: 'Run executed (MS13 repair loop)',
+    message: 'Run executed (MS14 async lifecycle)',
     candidate,
     repair_summary: {
       enabled: repairEnabled,

@@ -60,7 +60,7 @@ async function markRunFailedFromExecutorCrash(run_id, err) {
         SET status = ?,
             completed_at = ?
       WHERE id = ?
-        AND status IN ('queued', 'running', 'validating')
+        AND status IN ('queued', 'running')
       LIMIT 1`,
     ['failed', completed_at, run_id]
   );
@@ -68,7 +68,8 @@ async function markRunFailedFromExecutorCrash(run_id, err) {
   console.error('executeRun failed', { run_id, error: err?.message });
 }
 
-async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync', repair = {} }) {
+// Accepts optional status parameter
+async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync', repair = {}, status: statusOverride } = {}) {
   const contract = await getContract({ domain_id, contract_version });
   if (!contract) {
     const err = new Error('Contract not found for domain_id and contract_version');
@@ -80,8 +81,8 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
   const id = crypto.randomUUID();
   const created_at_iso = nowIso();
 
-  // MS10: queued for async; running for sync
-  const status = execution_mode === 'async' ? 'queued' : 'running';
+  // Use provided status if given, else default logic
+  const status = typeof statusOverride === 'string' ? statusOverride : (execution_mode === 'async' ? 'queued' : 'running');
 
   const created_at = isoToMysqlDatetime3(created_at_iso);
 
@@ -120,34 +121,16 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
     }
   });
 
-  if (execution_mode === 'async') {
-    try {
-      executionEngine.enqueue(id);
-    } catch (e) {
-      markRunFailedFromExecutorCrash(id, e).catch((markErr) => {
-        console.error('markRunFailedFromExecutorCrash failed', {
-          run_id: id,
-          error: markErr?.message,
-          original_error: e?.message
-        });
-      });
-    }
-
-    // Return minimal queued run response
-    return {
-      id,
-      correlation_id: correlation_id || null,
-      status,
-      domain_id,
-      contract_version,
-      created_at: created_at_iso,
-      completed_at: null
-    };
-  }
-
-  // Sync mode: execute now then return hydrated run
-  await executeRun(id);
-  return await getRun(id);
+  // Always just return the inserted run record, do not trigger execution here
+  return {
+    id,
+    correlation_id: correlation_id || null,
+    status,
+    domain_id,
+    contract_version,
+    created_at: created_at_iso,
+    completed_at: null
+  };
 }
 
 async function getRun(id) {
@@ -162,6 +145,7 @@ async function getRun(id) {
     [id]
   );
 
+  
   if (!rows || rows.length === 0) return null;
 
   const r = rows[0];
