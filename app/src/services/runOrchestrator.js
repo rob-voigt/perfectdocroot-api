@@ -2,6 +2,7 @@
 
 const { pool } = require('../db/mysql');
 const { sha256HexFromObject } = require('../utils/hash');
+const crypto = require('crypto');
 
 const { getContract } = require('./contractRepo');
 const { validateAgainstSchema } = require('./schemaValidate');
@@ -34,6 +35,231 @@ function maxRepairAttempts() {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 2;
 }
 
+function sha256HexFromString(s) {
+  return crypto.createHash('sha256').update(String(s), 'utf8').digest('hex');
+}
+
+function isSha256Hex(s) {
+  return typeof s === 'string' && /^[a-f0-9]{64}$/i.test(s);
+}
+
+function normalizeRunInputEnvelope(input_payload) {
+  // MS15A: either legacy (candidate object), or envelope { input_payload, inputs }
+  if (input_payload && typeof input_payload === 'object' && !Array.isArray(input_payload)) {
+    if (
+      Object.prototype.hasOwnProperty.call(input_payload, 'input_payload') &&
+      Object.prototype.hasOwnProperty.call(input_payload, 'inputs')
+    ) {
+      const candidate_seed =
+        input_payload.input_payload &&
+        typeof input_payload.input_payload === 'object' &&
+        !Array.isArray(input_payload.input_payload)
+          ? input_payload.input_payload
+          : {};
+      const inputs = Array.isArray(input_payload.inputs) ? input_payload.inputs : [];
+      return { candidate_seed, inputs, isEnvelope: true };
+    }
+  }
+  return { candidate_seed: input_payload || {}, inputs: [], isEnvelope: false };
+}
+
+async function loadArtifactMeta(artifact_id) {
+  const [uploadedRows] = await pool.execute(
+    `SELECT id,
+            sha256 AS content_hash,
+            size_bytes,
+            content_type,
+            original_filename,
+            created_at
+       FROM uploaded_artifacts
+      WHERE id = ?
+      LIMIT 1`,
+    [artifact_id]
+  );
+
+  if (uploadedRows && uploadedRows.length > 0) {
+    const a = uploadedRows[0];
+    return {
+      id: a.id,
+      source: 'uploaded_artifacts',
+      artifact_type: 'uploaded_artifact',
+      content_hash: a.content_hash,            // <-- comes from sha256 AS content_hash
+      size_bytes: a.size_bytes,
+      content_type: a.content_type || null,
+      original_filename: a.original_filename || null,
+      created_at: a.created_at instanceof Date ? a.created_at.toISOString() : a.created_at
+    };
+  }
+
+  const [artifactRows] = await pool.execute(
+    `SELECT id, artifact_type, content_hash, size_bytes, created_at
+       FROM artifacts
+      WHERE id = ?
+      LIMIT 1`,
+    [artifact_id]
+  );
+
+  if (!artifactRows || artifactRows.length === 0) return null;
+  const legacy = artifactRows[0];
+  return {
+    id: legacy.id,
+    source: 'artifacts',
+    artifact_type: legacy.artifact_type,
+    content_hash: legacy.content_hash,
+    size_bytes: legacy.size_bytes,
+    created_at: legacy.created_at instanceof Date ? legacy.created_at.toISOString() : legacy.created_at
+  };
+}
+
+async function buildEvidenceManifest(inputs) {
+  const inputs_resolved = [];
+  const errors = [];
+
+  for (let i = 0; i < inputs.length; i++) {
+    const item = inputs[i];
+    const type = item?.type;
+    const purpose = typeof item?.purpose === 'string' && item.purpose.trim() ? item.purpose.trim() : null;
+    const required = typeof item?.required === 'boolean' ? item.required : false;
+
+    if (type === 'artifact_ref') {
+      const artifact_id = typeof item?.artifact_id === 'string' ? item.artifact_id.trim() : '';
+      const expected_hash = item?.expect?.content_hash;
+
+      const meta = artifact_id ? await loadArtifactMeta(artifact_id) : null;
+
+      if (!meta) {
+        inputs_resolved.push({
+          type,
+          artifact_id: artifact_id || null,
+          purpose,
+          required,
+          resolved: false,
+          error: { code: 'artifact_not_found', message: 'Referenced artifact not found' }
+        });
+        if (required) {
+          errors.push({
+            code: 'artifact_not_found',
+            message: `Required artifact not found: ${artifact_id || '(missing)'} `
+          });
+        }
+        continue;
+      }
+
+      if (expected_hash != null) {
+        if (!isSha256Hex(expected_hash)) {
+          const invalidEntry = {
+            type,
+            artifact_id: meta.id,
+            source: meta.source,
+            purpose,
+            required,
+            resolved: false,
+            error: { code: 'expected_hash_invalid', message: 'expect.content_hash must be sha256 hex' }
+          };
+          if (meta.artifact_type != null) invalidEntry.artifact_type = meta.artifact_type;
+          inputs_resolved.push(invalidEntry);
+          errors.push({ code: 'expected_hash_invalid', message: `Invalid expect.content_hash for artifact ${meta.id}` });
+          continue;
+        }
+
+        if (String(meta.content_hash).toLowerCase() !== String(expected_hash).toLowerCase()) {
+          const mismatchEntry = {
+            type,
+            artifact_id: meta.id,
+            source: meta.source,
+            purpose,
+            required,
+            resolved: false,
+            content_hash: meta.content_hash,
+            size_bytes: meta.size_bytes,
+            created_at: meta.created_at,
+            error: { code: 'artifact_hash_mismatch', message: 'Artifact content_hash did not match expect.content_hash' }
+          };
+          if (meta.artifact_type != null) mismatchEntry.artifact_type = meta.artifact_type;
+          inputs_resolved.push(mismatchEntry);
+          errors.push({ code: 'artifact_hash_mismatch', message: `Artifact hash mismatch: ${meta.id}` });
+          continue;
+        }
+      }
+
+      const resolvedEntry = {
+        type,
+        artifact_id: meta.id,
+        source: meta.source,
+        purpose,
+        required,
+        resolved: true,
+        content_hash: meta.content_hash,
+        size_bytes: meta.size_bytes,
+        created_at: meta.created_at
+      };
+      if (meta.artifact_type != null) resolvedEntry.artifact_type = meta.artifact_type;
+      inputs_resolved.push(resolvedEntry);
+      continue;
+    }
+
+    if (type === 'inline_text') {
+      const name = typeof item?.name === 'string' ? item.name.trim() : '';
+      const content = typeof item?.content === 'string' ? item.content : '';
+      const content_hash = sha256HexFromString(content);
+      const size_bytes = Buffer.byteLength(content, 'utf8');
+      inputs_resolved.push({
+        type,
+        name: name || null,
+        purpose,
+        required,
+        resolved: true,
+        content_hash,
+        size_bytes
+      });
+      continue;
+    }
+
+    // Unknown types should not reach here (validated in routes), but be defensive.
+    inputs_resolved.push({
+      type: type || null,
+      purpose,
+      required,
+      resolved: false,
+      error: { code: 'unsupported_input_type', message: 'Unsupported input type' }
+    });
+    errors.push({ code: 'unsupported_input_type', message: `Unsupported input type: ${type}` });
+  }
+
+  return {
+    evidence_manifest_version: '1',
+    inputs_resolved,
+    errors
+  };
+}
+
+function computeEvidenceHashFromManifest(manifest) {
+  const identity_inputs = (manifest?.inputs_resolved || []).map((x) => {
+    if (x.type === 'artifact_ref') {
+      return {
+        type: 'artifact_ref',
+        artifact_id: x.artifact_id,
+        content_hash: x.content_hash || null,
+        purpose: x.purpose || null,
+        required: !!x.required,
+        resolved: !!x.resolved
+      };
+    }
+    if (x.type === 'inline_text') {
+      return {
+        type: 'inline_text',
+        name: x.name || null,
+        content_hash: x.content_hash || null,
+        purpose: x.purpose || null,
+        required: !!x.required,
+        resolved: !!x.resolved
+      };
+    }
+    return { type: x.type || null, required: !!x.required, resolved: !!x.resolved };
+  });
+
+  return sha256HexFromObject({ evidence_manifest_version: '1', inputs: identity_inputs });
+}
 
 /**
  * Deterministic repair attempt for candidate JSON output.
@@ -72,226 +298,319 @@ function attemptRepair({ previous_output, validation_report, schema }) {
 }
 
 async function executeRun(run_id) {
-  // Load run record (include working_payload and repair_json)
-  const [rows] = await pool.execute(
-    `SELECT id, domain_id, contract_version, input_payload, working_payload, repair_json
-       FROM runs
-      WHERE id = ?
-      LIMIT 1`,
-    [run_id]
-  );
-  if (!rows || rows.length === 0) return;
+  try {
+    // Load run record (include working_payload and repair_json)
+    const [rows] = await pool.execute(
+      `SELECT id, domain_id, contract_version, input_payload, working_payload, repair_json
+         FROM runs
+        WHERE id = ?
+        LIMIT 1`,
+      [run_id]
+    );
+    if (!rows || rows.length === 0) return;
 
-  const run = rows[0];
-  const domain_id = run.domain_id;
-  const contract_version = run.contract_version;
+    const run = rows[0];
+    const domain_id = run.domain_id;
+    const contract_version = run.contract_version;
 
-  const input_payload =
-    run.input_payload
-      ? (typeof run.input_payload === 'string' ? JSON.parse(run.input_payload) : run.input_payload)
+    const input_payload = run.input_payload
+      ? typeof run.input_payload === 'string'
+        ? JSON.parse(run.input_payload)
+        : run.input_payload
       : {};
 
-  // working_payload: parse if present, else use input_payload
-  let candidate =
-    run.working_payload == null
-      ? input_payload
-      : (typeof run.working_payload === 'string' ? JSON.parse(run.working_payload) : run.working_payload);
+    // MS15A: normalize legacy payload vs envelope
+    const { candidate_seed, inputs } = normalizeRunInputEnvelope(input_payload);
 
-  const original_input_payload = input_payload;
+    // working_payload: parse if present, else use input_payload
+    let candidate =
+      run.working_payload == null
+        ? candidate_seed
+        : typeof run.working_payload === 'string'
+          ? JSON.parse(run.working_payload)
+          : run.working_payload;
 
-  // Parse repair_json safely
-  let repairEnabled = false;
-  let repairMaxAttempts = 2;
-  if (run.repair_json) {
-    try {
-      const repairObj = typeof run.repair_json === 'string' ? JSON.parse(run.repair_json) : run.repair_json;
-      repairEnabled = !!repairObj.enabled;
-      const maxA = Number.isFinite(repairObj.max_attempts) ? Math.max(0, Math.min(5, Math.floor(repairObj.max_attempts))) : 2;
-      repairMaxAttempts = maxA;
-    } catch (e) {
-      repairEnabled = false;
-      repairMaxAttempts = 2;
+    const original_candidate_seed = candidate_seed;
+
+    // Parse repair_json safely
+    let repairEnabled = false;
+    let repairMaxAttempts = 2;
+    if (run.repair_json) {
+      try {
+        const repairObj = typeof run.repair_json === 'string' ? JSON.parse(run.repair_json) : run.repair_json;
+        repairEnabled = !!repairObj.enabled;
+        const maxA = Number.isFinite(repairObj.max_attempts)
+          ? Math.max(0, Math.min(5, Math.floor(repairObj.max_attempts)))
+          : 2;
+        repairMaxAttempts = maxA;
+      } catch (e) {
+        repairEnabled = false;
+        repairMaxAttempts = 2;
+      }
     }
-  }
 
+    // Contract lookup
+    let completed_at_iso = null;
+    const contract = await getContract({ domain_id, contract_version });
 
-  // Contract lookup
-  let completed_at_iso = null;
-  const contract = await getContract({ domain_id, contract_version });
+    if (!contract) {
+      completed_at_iso = nowIso();
+      const report = {
+        domain_id,
+        contract_version,
+        pass: false,
+        score: 0,
+        issues: [{ code: 'contract_not_found', message: 'Contract not found for domain_id and contract_version' }],
+        created_at: completed_at_iso
+      };
 
-  if (!contract) {
-    completed_at_iso = nowIso();
-    const report = {
+      await pool.execute(`UPDATE runs SET status = ?, completed_at = ? WHERE id = ? LIMIT 1`, [
+        'failed',
+        isoToMysqlDatetime3(completed_at_iso),
+        run_id
+      ]);
+      await createArtifact({ run_id, artifact_type: 'validation_report', content: report });
+      return;
+    }
+
+    // Use parsed repair config
+    const maxValidationPasses = 1 + repairMaxAttempts;
+
+    // ----------------------------
+    // MS15A: Resolve evidence inputs[] and compute deterministic hashes
+    // ----------------------------
+    const evidence_manifest = await buildEvidenceManifest(inputs);
+    const seed_hash = sha256HexFromObject({ domain_id, contract_version, input_payload: original_candidate_seed });
+    const evidence_hash = computeEvidenceHashFromManifest(evidence_manifest);
+    const final_input_hash = sha256HexFromObject({
       domain_id,
       contract_version,
-      pass: false,
-      score: 0,
-      issues: [{ code: 'contract_not_found', message: 'Contract not found for domain_id and contract_version' }],
-      created_at: completed_at_iso
+      contract_schema_hash: contract.schema_hash,
+      seed_hash,
+      evidence_hash
+    });
+
+    const provenance = {
+      provenance_version: '1',
+      hashes: { seed_hash, evidence_hash, input_hash: final_input_hash },
+      evidence_manifest
     };
 
+    // MS15A improvement: persist provenance + input_hash early so evidence is recorded
+    // even if later steps (repairs/mutations/finalize) crash.
     await pool.execute(
-      `UPDATE runs SET status = ?, completed_at = ? WHERE id = ? LIMIT 1`,
-      ['failed', isoToMysqlDatetime3(completed_at_iso), run_id]
+      `UPDATE runs
+          SET input_hash = ?,
+              provenance = ?
+        WHERE id = ?
+        LIMIT 1`,
+      [final_input_hash, JSON.stringify(provenance), run_id]
     );
-    await createArtifact({ run_id, artifact_type: 'validation_report', content: report });
-    return;
-  }
 
-  // Use parsed repair config
-  const maxValidationPasses = 1 + repairMaxAttempts;
+    // If required evidence failed to resolve, fail run immediately.
+    if (Array.isArray(evidence_manifest.errors) && evidence_manifest.errors.length > 0) {
+      completed_at_iso = nowIso();
+      const report = {
+        report_id: crypto.randomUUID(),
+        domain_id,
+        contract_version,
+        pass: false,
+        score: 0,
+        issues: evidence_manifest.errors.map((e) => ({ code: e.code, message: e.message })),
+        created_at: completed_at_iso
+      };
 
-  // Draft step
-  let previous_output_hash = sha256HexFromObject(candidate);
-  const draftSeq = await getNextSeq(run_id);
-  const draftStep = await insertRunStep({
-    run_id,
-    seq: draftSeq,
-    type: 'draft',
-    status: 'ok',
-    input_hash: null,
-    output_hash: previous_output_hash,
-    step_output_json: candidate
-  });
+      await createArtifact({ run_id, artifact_type: 'validation_report', content: report });
+      await pool.execute(
+        `UPDATE runs
+            SET status = ?,
+                input_hash = ?,
+                output_hash = NULL,
+                validation_report = ?,
+                result_json = ?,
+                provenance = ?,
+                completed_at = ?,
+                working_payload = ?
+          WHERE id = ?
+          LIMIT 1`,
+        [
+          'failed',
+          final_input_hash,
+          JSON.stringify(report),
+          JSON.stringify({ message: 'Evidence resolution failed (MS15A)', candidate: null }),
+          JSON.stringify(provenance),
+          isoToMysqlDatetime3(completed_at_iso),
+          JSON.stringify(candidate),
+          run_id
+        ]
+      );
+      return;
+    }
 
-  let previous_step_id = draftStep.id;
+    // Draft step
+    let previous_output_hash = sha256HexFromObject(candidate);
+    const draftSeq = await getNextSeq(run_id);
+    const draftStep = await insertRunStep({
+      run_id,
+      seq: draftSeq,
+      type: 'draft',
+      status: 'ok',
+      input_hash: final_input_hash,
+      output_hash: previous_output_hash,
+      step_output_json: candidate
+    });
 
-  // Loop: validate, repair, validate, repair...
-  let final_validation_report = null;
-  let final_pass = false;
+    let previous_step_id = draftStep.id;
 
-  for (let passIndex = 1; passIndex <= maxValidationPasses; passIndex++) {
-    // Validate current candidate
-    const { ok, issues } = validateAgainstSchema(contract.schema, candidate);
-    const pass = !!ok;
-    const score = pass ? 100 : Math.max(0, 100 - (issues?.length || 0) * 10);
-    completed_at_iso = nowIso();
+    // Loop: validate, repair, validate, repair...
+    let final_validation_report = null;
+    let final_pass = false;
 
-    const validation_report = {
-      report_id: globalThis.crypto?.randomUUID?.() || undefined,
-      domain_id,
-      contract_version,
-      pass,
-      score,
-      issues: issues || [],
-      created_at: completed_at_iso
+    for (let passIndex = 1; passIndex <= maxValidationPasses; passIndex++) {
+      // Validate current candidate
+      const { ok, issues } = validateAgainstSchema(contract.schema, candidate);
+      const pass = !!ok;
+      const score = pass ? 100 : Math.max(0, 100 - (issues?.length || 0) * 10);
+      completed_at_iso = nowIso();
+
+      const validation_report = {
+        report_id: crypto.randomUUID(),
+        domain_id,
+        contract_version,
+        pass,
+        score,
+        issues: issues || [],
+        created_at: completed_at_iso
+      };
+
+      // Persist validate step
+      const validateSeq = await getNextSeq(run_id);
+      await insertRunStep({
+        run_id,
+        seq: validateSeq,
+        type: 'validate',
+        status: pass ? 'pass' : 'fail',
+        input_hash: previous_output_hash,
+        output_hash: null,
+        validation_report_json: validation_report
+      });
+
+      final_validation_report = validation_report;
+      final_pass = pass;
+
+      if (pass) break;
+
+      // Only perform repair/mutation steps if repairEnabled is true
+      const repairsRemaining = repairEnabled && passIndex <= repairMaxAttempts;
+      if (!repairsRemaining) break;
+
+      // Repair attempt -> new candidate
+      const repaired = attemptRepair({
+        previous_output: candidate,
+        validation_report,
+        schema: contract.schema
+      });
+
+      const repaired_hash = sha256HexFromObject(repaired);
+
+      // Persist repair step
+      const repairSeq = await getNextSeq(run_id);
+      const repairStep = await insertRunStep({
+        run_id,
+        seq: repairSeq,
+        type: 'repair',
+        status: 'ok',
+        input_hash: previous_output_hash,
+        output_hash: repaired_hash,
+        step_output_json: repaired,
+        meta_json: { attempt_number: passIndex }
+      });
+
+      // Persist mutation patch draft/repair lineage
+      const patch = makePatch(candidate, repaired);
+      const summary = patchSummary(patch);
+      await insertMutation({
+        run_id,
+        from_step_id: previous_step_id,
+        to_step_id: repairStep.id,
+        patch_json: patch,
+        summary_json: summary
+      });
+
+      // Advance
+      candidate = repaired;
+      previous_output_hash = repaired_hash;
+      previous_step_id = repairStep.id;
+    }
+
+    // Compute final output hash (include input_hash linkage)
+    const output_for_hash = {
+      input_hash: final_input_hash,
+      validation: {
+        pass: final_validation_report?.pass,
+        score: final_validation_report?.score,
+        issues: final_validation_report?.issues
+      },
+      result: { message: 'Run executed (MS14 async lifecycle)', candidate }
+    };
+    const final_output_hash = sha256HexFromObject(output_for_hash);
+
+    const final_result = {
+      message: 'Run executed (MS14 async lifecycle)',
+      candidate,
+      repair_summary: {
+        enabled: repairEnabled,
+        max_attempts: repairMaxAttempts,
+        final_pass: !!final_validation_report?.pass
+      }
     };
 
-    // Persist validate step
-    const validateSeq = await getNextSeq(run_id);
-    await insertRunStep({
+    // Artifacts
+    await createArtifact({ run_id, artifact_type: 'validation_report', content: final_validation_report });
+    await createArtifact({
       run_id,
-      seq: validateSeq,
-      type: 'validate',
-      status: pass ? 'pass' : 'fail',
-      input_hash: previous_output_hash,
-      output_hash: null,
-      validation_report_json: validation_report
+      artifact_type: 'contract_snapshot',
+      content: { domain_id, contract_version, schema_hash: contract.schema_hash }
     });
 
-    final_validation_report = validation_report;
-    final_pass = pass;
-
-    if (pass) break;
-
-    // Only perform repair/mutation steps if repairEnabled is true
-    const repairsRemaining = repairEnabled && passIndex <= repairMaxAttempts;
-    if (!repairsRemaining) break;
-
-    // Repair attempt -> new candidate
-    const repaired = attemptRepair({
-      previous_output: candidate,
-      validation_report,
-      schema: contract.schema
-    });
-
-    const repaired_hash = sha256HexFromObject(repaired);
-
-    // Persist repair step
-    const repairSeq = await getNextSeq(run_id);
-    const repairStep = await insertRunStep({
-      run_id,
-      seq: repairSeq,
-      type: 'repair',
-      status: 'ok',
-      input_hash: previous_output_hash,
-      output_hash: repaired_hash,
-      step_output_json: repaired,
-      meta_json: { attempt_number: passIndex }
-    });
-
-    // Persist mutation patch draft/repair lineage
-    const patch = makePatch(candidate, repaired);
-    const summary = patchSummary(patch);
-    await insertMutation({
-      run_id,
-      from_step_id: previous_step_id,
-      to_step_id: repairStep.id,
-      patch_json: patch,
-      summary_json: summary
-    });
-
-    // Advance
-    candidate = repaired;
-    previous_output_hash = repaired_hash;
-    previous_step_id = repairStep.id;
+    // Finalize run ONCE (note: working_payload is FINAL candidate)
+    await pool.execute(
+      `UPDATE runs
+          SET status = ?,
+              input_hash = ?,
+              output_hash = ?,
+              validation_report = ?,
+              result_json = ?,
+              provenance = ?,
+              completed_at = ?,
+              working_payload = ?
+        WHERE id = ?
+        LIMIT 1`,
+      [
+        final_pass ? 'succeeded' : 'failed',
+        final_input_hash,
+        final_output_hash,
+        JSON.stringify(final_validation_report),
+        JSON.stringify(final_result),
+        JSON.stringify(provenance),
+        isoToMysqlDatetime3(completed_at_iso),
+        JSON.stringify(candidate),
+        run_id
+      ]
+    );
+  } catch (err) {
+    const completed_at_iso = nowIso();
+    await pool.execute(
+      `UPDATE runs
+          SET status = ?,
+              last_error = ?,
+              completed_at = ?
+        WHERE id = ?
+        LIMIT 1`,
+      ['failed', err?.stack || String(err), isoToMysqlDatetime3(completed_at_iso), run_id]
+    );
+    throw err;
   }
-
-  // Compute final hashes/results (keep your existing approach, but based on FINAL candidate)
-  const input_for_hash = { domain_id, contract_version, input_payload: candidate };
-  const final_input_hash = sha256HexFromObject(input_for_hash);
-
-  const output_for_hash = {
-    validation: {
-      pass: final_validation_report?.pass,
-      score: final_validation_report?.score,
-      issues: final_validation_report?.issues
-    },
-    result: { message: 'Run executed (MS14 async lifecycle)', candidate }
-  };
-  const final_output_hash = sha256HexFromObject(output_for_hash);
-
-  const final_result = {
-    message: 'Run executed (MS14 async lifecycle)',
-    candidate,
-    repair_summary: {
-      enabled: repairEnabled,
-      max_attempts: repairMaxAttempts,
-      final_pass: !!final_validation_report?.pass
-    }
-  };
-
-  // Artifacts
-  await createArtifact({ run_id, artifact_type: 'validation_report', content: final_validation_report });
-  await createArtifact({
-    run_id,
-    artifact_type: 'contract_snapshot',
-    content: { domain_id, contract_version, schema_hash: contract.schema_hash }
-  });
-
-  // Finalize run ONCE (note: working_payload is FINAL candidate)
-  await pool.execute(
-    `UPDATE runs
-        SET status = ?,
-            input_hash = ?,
-            output_hash = ?,
-            validation_report = ?,
-            result_json = ?,
-            completed_at = ?,
-            working_payload = ?
-      WHERE id = ?
-      LIMIT 1`,
-    [
-      final_pass ? 'succeeded' : 'failed',
-      final_input_hash,
-      final_output_hash,
-      JSON.stringify(final_validation_report),
-      JSON.stringify(final_result),
-      isoToMysqlDatetime3(completed_at_iso),
-      JSON.stringify(candidate),
-      run_id
-    ]
-  );
 }
 
 module.exports = { executeRun };

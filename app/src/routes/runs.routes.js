@@ -16,6 +16,58 @@ const { listRunSteps } = require('../models/runSteps.model');
 const { listMutations } = require('../models/mutations.model');
 
 // ----------------------------
+// MS15A: inputs[] validation helpers
+// ----------------------------
+function isSha256Hex(s) {
+  return typeof s === 'string' && /^[a-f0-9]{64}$/i.test(s);
+}
+
+function validateInputsArray(inputs) {
+  if (!Array.isArray(inputs)) return 'inputs must be an array';
+  if (inputs.length < 1) return 'inputs must contain at least 1 item';
+  if (inputs.length > 25) return 'inputs must contain at most 25 items';
+
+  let inlineBytes = 0;
+
+  for (let i = 0; i < inputs.length; i++) {
+    const item = inputs[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return `inputs[${i}] must be an object`;
+    }
+
+    const type = item.type;
+    if (type !== 'artifact_ref' && type !== 'inline_text') {
+      return `inputs[${i}].type must be one of: artifact_ref, inline_text`;
+    }
+
+    if (type === 'artifact_ref') {
+      if (typeof item.artifact_id !== 'string' || !item.artifact_id.trim()) {
+        return `inputs[${i}].artifact_id is required for artifact_ref`;
+      }
+
+      if (item.expect && typeof item.expect === 'object' && item.expect.content_hash != null) {
+        if (!isSha256Hex(item.expect.content_hash)) {
+          return `inputs[${i}].expect.content_hash must be a 64-char hex sha256`;
+        }
+      }
+    }
+
+    if (type === 'inline_text') {
+      if (typeof item.name !== 'string' || !item.name.trim()) {
+        return `inputs[${i}].name is required for inline_text`;
+      }
+      if (typeof item.content !== 'string') {
+        return `inputs[${i}].content is required for inline_text`;
+      }
+      inlineBytes += Buffer.byteLength(item.content, 'utf8');
+    }
+  }
+
+  if (inlineBytes > 50_000) return 'inline_text content exceeds 50KB limit';
+  return null;
+}
+
+// ----------------------------
 // GET /runs/:id/steps
 // ----------------------------
 router.get(
@@ -73,6 +125,9 @@ router.post(
           ? body.input_payload
           : {};
 
+      // MS15A: optional evidence inputs[] envelope
+      const inputs = Array.isArray(body.inputs) ? body.inputs : null;
+
       const execution_mode =
         body.execution && typeof body.execution === 'object' && body.execution.mode === 'async'
           ? 'async'
@@ -86,16 +141,28 @@ router.post(
         });
       }
 
+      if (inputs) {
+        const inputsErr = validateInputsArray(inputs);
+        if (inputsErr) {
+          return res.status(400).json({
+            error: 'validation_error',
+            message: inputsErr,
+            requestId: req.requestId
+          });
+        }
+      }
 
       // Extract repair config if present, else default
-      const repair = typeof body.repair === 'object' && body.repair !== null
-        ? body.repair
-        : { enabled: false, max_attempts: 2 };
+      const repair =
+        typeof body.repair === 'object' && body.repair !== null ? body.repair : { enabled: false, max_attempts: 2 };
+
+      // MS15A: if inputs[] is present, store envelope in input_payload
+      const stored_input_payload = inputs ? { input_payload, inputs } : input_payload;
 
       const run = await createRun({
         domain_id,
         contract_version,
-        input_payload,
+        input_payload: stored_input_payload,
         correlation_id: req.requestId,
         execution_mode,
         repair,
@@ -103,20 +170,35 @@ router.post(
         status: execution_mode === 'async' ? 'queued' : 'running'
       });
 
-if (execution_mode === 'async') {
-  return res.status(202).json({ run, requestId: req.requestId });
-}
+      if (execution_mode === 'async') {
+        return res.status(202).json({ run, requestId: req.requestId });
+      }
 
-// sync: execute inline then return final persisted run
-await processRun(run.id);
-const finalRun = await getRun(run.id);
+      // sync: execute inline then return final persisted run
+      await processRun(run.id);
+      const finalRun = await getRun(run.id);
 
-return res.status(201).json({ run: finalRun || run, requestId: req.requestId });
+      return res.status(201).json({ run: finalRun || run, requestId: req.requestId });
     } catch (err) {
       return next(err);
     }
   }
 );
+
+// ----------------------------
+// GET /runs/worker-status
+// ----------------------------
+router.get('/runs/worker-status', requireApiKey, async (req, res, next) => {
+  try {
+    return res.status(200).json({
+      ok: true,
+      ts: new Date().toISOString(),
+      note: 'temporary endpoint'
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // ----------------------------
 // GET /runs/:id

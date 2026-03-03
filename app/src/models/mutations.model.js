@@ -1,7 +1,11 @@
 'use strict';
 
-const uuidv4 = () => globalThis.crypto.randomUUID();
+const crypto = require('crypto');
 const { pool } = require('../db/mysql');
+
+function uuidv4() {
+  return crypto.randomUUID();
+}
 
 function safeJsonParse(v) {
   if (v == null) return null;

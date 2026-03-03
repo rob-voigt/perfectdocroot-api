@@ -19,6 +19,41 @@ router.get('/', (req, res) => {
   });
 });
 
+router.get('/health', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'pdr-api',
+    ts: new Date().toISOString()
+  });
+});
+
+router.get('/ping2', (req, res) => {
+  res.status(200).json({ ok: true, route: '/v1/ping2', ts: new Date().toISOString() });
+});
+
+router.get('/worker/status', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    ts: new Date().toISOString(),
+    note: 'stub: implement heartbeats + LiteSpeed forwarding to use this endpoint'
+  });
+
+  router.get('/worker-status', async (req, res) => {
+  // return whatever you intended for /v1/worker/status
+  res.status(200).json({
+    ok: true,
+    ts: new Date().toISOString(),
+    note: 'temporary endpoint until LiteSpeed forwards /v1/worker/*'
+  });
+});
+
+  res.status(200).json({
+    ok: true,
+    ts: new Date().toISOString(),
+    recent_workers: rows
+  });
+});
+
 // v1 routes
 router.use(runsRouter);
 router.use(validateRouter);

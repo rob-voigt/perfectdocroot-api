@@ -1,12 +1,30 @@
 'use strict';
 
 const os = require('os');
+const { pool } = require('../src/db/mysql');
 const { claimNextRun, markRunFailed, requeueStaleRuns } = require('../src/services/runQueue');
 const { processRun } = require('../src/execution/executionEngine');
 
 const WORKER_ID = process.env.PDR_WORKER_ID || `${os.hostname()}:${process.pid}`;
 const POLL_MS = Number(process.env.PDR_WORKER_POLL_MS || 1000);
 const REQUEUE_EVERY = Number(process.env.PDR_REQUEUE_EVERY_LOOPS || 30); // ~30s if POLL_MS=1000
+
+async function heartbeat({ worker_id, poll_ms, requeue_every_loops }) {
+  const host = os.hostname();
+  const pid = process.pid;
+
+  await pool.execute(
+    `INSERT INTO worker_heartbeats (worker_id, host, pid, poll_ms, requeue_every_loops, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, NOW(3))
+     ON DUPLICATE KEY UPDATE
+       host=VALUES(host),
+       pid=VALUES(pid),
+       poll_ms=VALUES(poll_ms),
+       requeue_every_loops=VALUES(requeue_every_loops),
+       last_seen_at=NOW(3)`,
+    [worker_id, host, pid, poll_ms, requeue_every_loops]
+  );
+}
 
 let loops = 0;
 let shuttingDown = false;
