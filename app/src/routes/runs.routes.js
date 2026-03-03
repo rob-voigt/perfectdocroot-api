@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { processRun } = require('../execution/executionEngine');
+const { pool } = require('../db/mysql');
 
 const { createRun, getRun } = require('../services/runRepo');
 const { requireApiKey } = require('../middleware/auth');
@@ -190,10 +191,50 @@ router.post(
 // ----------------------------
 router.get('/runs/worker-status', requireApiKey, async (req, res, next) => {
   try {
+    const activeWindowMs = Number(process.env.PDR_WORKER_ACTIVE_WINDOW_MS || 15000);
+    const failedRecentMinutes = Number(process.env.PDR_FAILED_RECENT_MINUTES || 60);
+
+    // Active workers = heartbeat within window
+    const [workers] = await pool.execute(
+      `
+      SELECT worker_id, host, pid, poll_ms, requeue_every_loops, last_seen_at
+      FROM worker_heartbeats
+      WHERE last_seen_at >= (NOW(3) - INTERVAL ? MICROSECOND)
+      ORDER BY last_seen_at DESC
+      `,
+      [activeWindowMs * 1000]
+    );
+
+    // Counts
+    const [[queuedRow]] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM runs WHERE status='queued'`
+    );
+
+    const [[runningRow]] = await pool.execute(
+      `SELECT COUNT(*) AS cnt FROM runs WHERE status='running'`
+    );
+
+    const [[failedRecentRow]] = await pool.execute(
+      `
+      SELECT COUNT(*) AS cnt
+      FROM runs
+      WHERE status='failed'
+        AND completed_at >= (NOW(3) - INTERVAL ? MINUTE)
+      `,
+      [failedRecentMinutes]
+    );
+
     return res.status(200).json({
       ok: true,
       ts: new Date().toISOString(),
-      note: 'temporary endpoint'
+      active_window_ms: activeWindowMs,
+      failed_recent_minutes: failedRecentMinutes,
+      active_workers: workers,
+      counts: {
+        queued: Number(queuedRow?.cnt || 0),
+        running: Number(runningRow?.cnt || 0),
+        failed_recent: Number(failedRecentRow?.cnt || 0)
+      }
     });
   } catch (err) {
     return next(err);

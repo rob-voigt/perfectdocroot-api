@@ -1,6 +1,15 @@
 'use strict';
 
 const { executeRun } = require('../services/runOrchestrator');
+const { logInfo, logWarn, logError } = require('../utils/logger');
+
+const SERVICE = 'pdr-worker'; // execution engine runs inside worker (and sync path too)
+
+function maxConcurrentRuns() {
+  // ✅ default to 1 (safer); override via env
+  const raw = Number(process.env.MAX_CONCURRENT_RUNS || 1);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+}
 
 let activeRuns = 0;
 
@@ -62,5 +71,10 @@ async function processRun(run_id) {
     }
   }
 }
+
+logWarn(SERVICE, 'run_start_delayed_concurrency', { run_id, active_runs: activeRuns, max_concurrent_runs: maxConcurrentRuns() });
+logInfo(SERVICE, 'run_started', { run_id });
+logInfo(SERVICE, 'run_completed', { run_id });
+logError(SERVICE, 'run_failed', { run_id, err: { message: err?.message } });
 
 module.exports = { processRun };
