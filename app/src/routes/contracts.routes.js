@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { requireApiKey } = require('../middleware/auth');
-const { listContracts, getContract, upsertContract } = require('../services/contractRepo');
+const { listContracts, listContractsByDomain, getContract, upsertContract } = require('../services/contractRepo');
 
 const router = express.Router();
 
@@ -10,6 +10,26 @@ router.get('/contracts', requireApiKey, async (req, res, next) => {
   try {
     const contracts = await listContracts();
     return res.status(200).json({ contracts, requestId: req.requestId });
+  } catch (err) { next(err); }
+});
+
+router.get('/contracts/:domain_id', requireApiKey, async (req, res, next) => {
+  try {
+    const rows = await listContractsByDomain({ domain_id: req.params.domain_id });
+
+    if (!rows.length) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'No contracts found for domain',
+        requestId: req.requestId
+      });
+    }
+
+    return res.status(200).json({
+      domain_id: req.params.domain_id,
+      versions: rows,
+      requestId: req.requestId
+    });
   } catch (err) { next(err); }
 });
 

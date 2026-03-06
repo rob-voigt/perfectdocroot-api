@@ -23,6 +23,17 @@ async function listContracts() {
   return rows;
 }
 
+async function listContractsByDomain({ domain_id }) {
+  const [rows] = await pool.execute(
+    `SELECT domain_id, contract_version, schema_hash, created_at
+     FROM contracts
+     WHERE domain_id = ?
+     ORDER BY contract_version ASC`,
+    [domain_id]
+  );
+  return rows;
+}
+
 async function getContract({ domain_id, contract_version }) {
   const [rows] = await pool.execute(
     `SELECT id, domain_id, contract_version, schema_json, schema_hash, created_at
@@ -80,4 +91,4 @@ async function upsertContract({ domain_id, contract_version, schema_json }) {
   };
 }
 
-module.exports = { listContracts, getContract, upsertContract };
+module.exports = { listContracts, listContractsByDomain, getContract, upsertContract };
