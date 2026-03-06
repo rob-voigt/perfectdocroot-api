@@ -34,11 +34,17 @@ app.use((err, req, res, next) => {
   console.error('ERR', req.requestId, err);
 
   const status = err.statusCode || err.status || 500;
-  res.status(status).json({
+  const payload = {
     error: err.code || (status === 500 ? 'internal_error' : 'bad_request'),
     message: status === 500 ? 'Unexpected error' : (err.message || 'Error'),
     requestId: req.requestId
-  });
+  };
+
+  if (Array.isArray(err.available_versions)) {
+    payload.available_versions = err.available_versions;
+  }
+
+  res.status(status).json(payload);
 });
 
 module.exports = { app };

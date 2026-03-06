@@ -468,7 +468,7 @@ async function executeRun(run_id) {
 
     for (let passIndex = 1; passIndex <= maxValidationPasses; passIndex++) {
       // Validate current candidate
-      const { ok, issues } = validateAgainstSchema(contract.schema, candidate);
+      const { ok, issues } = validateAgainstSchema(contract.schema_json, candidate);
       const pass = !!ok;
       const score = pass ? 100 : Math.max(0, 100 - (issues?.length || 0) * 10);
       completed_at_iso = nowIso();
@@ -508,7 +508,7 @@ async function executeRun(run_id) {
       const repaired = attemptRepair({
         previous_output: candidate,
         validation_report,
-        schema: contract.schema
+        schema: contract.schema_json
       });
 
       const repaired_hash = sha256HexFromObject(repaired);

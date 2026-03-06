@@ -7,7 +7,7 @@ const { executeRun } = require('./runOrchestrator');
 
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
-const { getContract } = require('./contractRepo');
+const { getContract, listContractsByDomain } = require('./contractRepo');
 const { validateAgainstSchema } = require('./schemaValidate');
 const { createArtifact } = require('./artifactRepo');
 
@@ -72,9 +72,14 @@ async function markRunFailedFromExecutorCrash(run_id, err) {
 async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync', repair = {}, status: statusOverride } = {}) {
   const contract = await getContract({ domain_id, contract_version });
   if (!contract) {
-    const err = new Error('Contract not found for domain_id and contract_version');
-    err.statusCode = 400;
+    const versions = await listContractsByDomain({ domain_id });
+    const available_versions = versions.map((r) => r.contract_version);
+    const err = new Error(`Contract ${domain_id}/${contract_version} was not found`);
+    err.statusCode = 404;
     err.code = 'contract_not_found';
+    err.domain_id = domain_id;
+    err.contract_version = contract_version;
+    err.available_versions = available_versions;
     throw err;
   }
 

@@ -51,7 +51,7 @@ router.post('/validate', requireApiKey, rateLimit({ windowMs: 60_000, max: 60 })
       });
     }
 
-    const { ok, issues } = validateAgainstSchema(contract.schema, input_payload);
+    const { ok, issues } = validateAgainstSchema(contract.schema_json, input_payload);
     const pass = ok;
     const score = pass ? 100 : Math.max(0, 100 - issues.length * 10);
 
