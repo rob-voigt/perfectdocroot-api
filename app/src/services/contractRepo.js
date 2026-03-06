@@ -57,20 +57,10 @@ async function upsertContract({ domain_id, contract_version, schema_json }) {
   const existing = await getContract({ domain_id, contract_version });
 
   if (existing) {
-    await pool.execute(
-      `UPDATE contracts
-       SET schema_json = ?, schema_hash = ?, created_at = ?
-       WHERE domain_id = ? AND contract_version = ?`,
-      [JSON.stringify(schema_json), schema_hash, created_at, domain_id, contract_version]
-    );
-
-    return {
-      id: existing.id,
-      domain_id,
-      contract_version,
-      schema_hash,
-      created_at: created_at_iso
-    };
+    const err = new Error('Contract version already exists');
+    err.code = 'CONTRACT_VERSION_EXISTS';
+    err.status = 409;
+    throw err;
   }
 
   const id = crypto.randomUUID();

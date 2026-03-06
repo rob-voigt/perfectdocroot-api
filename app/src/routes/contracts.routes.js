@@ -46,7 +46,16 @@ router.post('/contracts', requireApiKey, async (req, res, next) => {
 
     const saved = await upsertContract({ domain_id, contract_version, schema_json });
     return res.status(201).json({ contract: saved, requestId: req.requestId });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err && err.code === 'CONTRACT_VERSION_EXISTS') {
+      return res.status(409).json({
+        error: 'conflict',
+        message: 'Contract version already exists',
+        requestId: req.requestId
+      });
+    }
+    next(err);
+  }
 });
 
 module.exports = { contractsRouter: router };
