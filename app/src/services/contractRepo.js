@@ -35,23 +35,23 @@ async function getContract({ domain_id, contract_version }) {
   if (!rows.length) return null;
   const r = rows[0];
 
-  const schema = (typeof r.schema_json === 'string') ? JSON.parse(r.schema_json) : r.schema_json;
+  const schema_json = (typeof r.schema_json === 'string') ? JSON.parse(r.schema_json) : r.schema_json;
 
   return {
     id: r.id,
     domain_id: r.domain_id,
     contract_version: r.contract_version,
-    schema,
+    schema_json,
     schema_hash: r.schema_hash,
     created_at: r.created_at
   };
 }
 
-async function upsertContract({ domain_id, contract_version, schema }) {
+async function upsertContract({ domain_id, contract_version, schema_json }) {
   const created_at_iso = nowIso();
   const created_at = isoToMysqlDatetime3(created_at_iso);
 
-  const schema_hash = sha256HexFromObject(schema);
+  const schema_hash = sha256HexFromObject(schema_json);
 
   // Does it already exist?
   const existing = await getContract({ domain_id, contract_version });
@@ -61,7 +61,7 @@ async function upsertContract({ domain_id, contract_version, schema }) {
       `UPDATE contracts
        SET schema_json = ?, schema_hash = ?, created_at = ?
        WHERE domain_id = ? AND contract_version = ?`,
-      [JSON.stringify(schema), schema_hash, created_at, domain_id, contract_version]
+      [JSON.stringify(schema_json), schema_hash, created_at, domain_id, contract_version]
     );
 
     return {
@@ -78,7 +78,7 @@ async function upsertContract({ domain_id, contract_version, schema }) {
   await pool.execute(
     `INSERT INTO contracts (id, domain_id, contract_version, schema_json, schema_hash, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, domain_id, contract_version, JSON.stringify(schema), schema_hash, created_at]
+    [id, domain_id, contract_version, JSON.stringify(schema_json), schema_hash, created_at]
   );
 
   return {

@@ -6,14 +6,14 @@ const { listContracts, getContract, upsertContract } = require('../services/cont
 
 const router = express.Router();
 
-router.get('/contracts', async (req, res, next) => {
+router.get('/contracts', requireApiKey, async (req, res, next) => {
   try {
     const contracts = await listContracts();
     return res.status(200).json({ contracts, requestId: req.requestId });
   } catch (err) { next(err); }
 });
 
-router.get('/contracts/:domain_id/:contract_version', async (req, res, next) => {
+router.get('/contracts/:domain_id/:contract_version', requireApiKey, async (req, res, next) => {
   try {
     const contract = await getContract({
       domain_id: req.params.domain_id,
@@ -35,16 +35,16 @@ router.get('/contracts/:domain_id/:contract_version', async (req, res, next) => 
 // Admin-only: upsert contract
 router.post('/contracts', requireApiKey, async (req, res, next) => {
   try {
-    const { domain_id, contract_version, schema } = req.body || {};
-    if (!domain_id || !contract_version || !schema) {
+    const { domain_id, contract_version, schema_json } = req.body || {};
+    if (!domain_id || !contract_version || !schema_json) {
       return res.status(400).json({
         error: 'bad_request',
-        message: 'domain_id, contract_version, schema are required',
+        message: 'domain_id, contract_version, schema_json are required',
         requestId: req.requestId
       });
     }
 
-    const saved = await upsertContract({ domain_id, contract_version, schema });
+    const saved = await upsertContract({ domain_id, contract_version, schema_json });
     return res.status(201).json({ contract: saved, requestId: req.requestId });
   } catch (err) { next(err); }
 });
