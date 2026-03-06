@@ -1,6 +1,4 @@
-'use strict';
-
-require('dotenv').config();
+'use strict';;
 
 function required(name) {
   const v = process.env[name];
@@ -10,7 +8,7 @@ function required(name) {
 
 const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: Number(process.env.PORT || 3306),
+  port: Number(process.env.PORT || 3000),
 
   serviceName: process.env.PDR_SERVICE_NAME || 'pdr-api',
   envName: process.env.PDR_ENV || 'api-dev',

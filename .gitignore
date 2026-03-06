@@ -2,4 +2,14 @@
 node_modules/
 logs/
 .env
+.env.test
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*.zip
 *.pdf
+# secrets
+.env.local
+.env.production

@@ -63,7 +63,7 @@ async function processRun(run_id) {
 
     log('run_completed', { run_id });
   } catch (err) {
-    log('run_failed', { run_id, error: err?.message });
+    logError(SERVICE, 'run_failed', { run_id, error: err?.message });
     throw err; // Worker must catch and mark failed if needed
   } finally {
     if (acquiredSlot) {
@@ -71,10 +71,5 @@ async function processRun(run_id) {
     }
   }
 }
-
-logWarn(SERVICE, 'run_start_delayed_concurrency', { run_id, active_runs: activeRuns, max_concurrent_runs: maxConcurrentRuns() });
-logInfo(SERVICE, 'run_started', { run_id });
-logInfo(SERVICE, 'run_completed', { run_id });
-logError(SERVICE, 'run_failed', { run_id, err: { message: err?.message } });
 
 module.exports = { processRun };

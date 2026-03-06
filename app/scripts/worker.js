@@ -1,5 +1,22 @@
 'use strict';
 
+// ✅ dotenv bootstrap MUST happen first
+const path = require('path');
+const dotenv = require('dotenv');
+
+const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
+const envFileName = nodeEnv === 'production' ? '.env.production' : '.env.local';
+
+// worker.js is app/scripts/worker.js → repo root is ../../
+const envPath = path.resolve(__dirname, '..', '..', envFileName);
+
+const result = dotenv.config({ path: envPath, override: true });
+if (result.error) {
+  console.warn('[worker:boot] dotenv not loaded:', envPath, '-', result.error.message);
+} else {
+  console.log('[worker:boot] dotenv loaded:', envPath);
+}
+
 const os = require('os');
 const { pool } = require('../src/db/mysql');
 const { claimNextRun, markRunFailed, requeueStaleRuns } = require('../src/services/runQueue');
@@ -7,6 +24,9 @@ const { processRun } = require('../src/execution/executionEngine');
 const { logInfo, logWarn, logError, toErr } = require('../src/utils/logger');
 
 const SERVICE = 'pdr-worker';
+
+const { config } = require('../src/config');
+console.log(`[worker] db_target host=${config.db.host} port=${config.db.port} user=${config.db.user} db=${config.db.database}`);
 
 const WORKER_ID = process.env.PDR_WORKER_ID || `${os.hostname()}:${process.pid}`;
 const POLL_MS = Number(process.env.PDR_WORKER_POLL_MS || 1000);
