@@ -117,9 +117,9 @@ router.post(
 
       const domain_id = typeof body.domain_id === 'string' ? body.domain_id.trim() : '';
       const contract_version =
-        typeof body.contract_version === 'string' && body.contract_version.trim()
+        typeof body.contract_version === 'string'
           ? body.contract_version.trim()
-          : '0.1';
+          : '';
 
       const input_payload =
         body.input_payload && typeof body.input_payload === 'object' && !Array.isArray(body.input_payload)

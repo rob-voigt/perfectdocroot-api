@@ -7,7 +7,7 @@ const { executeRun } = require('./runOrchestrator');
 
 const crypto = require('crypto');
 const { pool } = require('../db/mysql');
-const { getContract, listContractsByDomain } = require('./contractRepo');
+const {getContract, getLatestContractByDomain,listContractsByDomain} = require('./contractRepo');
 const { validateAgainstSchema } = require('./schemaValidate');
 const { createArtifact } = require('./artifactRepo');
 
@@ -68,35 +68,75 @@ async function markRunFailedFromExecutorCrash(run_id, err) {
   console.error('executeRun failed', { run_id, error: err?.message });
 }
 
-// Accepts optional status parameter
-async function createRun({ domain_id, contract_version, input_payload, correlation_id, execution_mode = 'sync', repair = {}, status: statusOverride } = {}) {
-  const contract = await getContract({ domain_id, contract_version });
-  if (!contract) {
-    const versions = await listContractsByDomain({ domain_id });
-    const available_versions = versions.map((r) => r.contract_version);
-    const err = new Error(`Contract ${domain_id}/${contract_version} was not found`);
-    err.statusCode = 404;
-    err.code = 'contract_not_found';
-    err.domain_id = domain_id;
-    err.contract_version = contract_version;
-    err.available_versions = available_versions;
-    throw err;
+async function createRun({
+  domain_id,
+  contract_version,
+  input_payload,
+  correlation_id,
+  execution_mode = 'sync',
+  repair = {},
+  status: statusOverride
+} = {}) {
+  const normalized_domain_id =
+    typeof domain_id === 'string' ? domain_id.trim() : '';
+
+  const requested_contract_version =
+    typeof contract_version === 'string' ? contract_version.trim() : '';
+
+  let contract = null;
+  let resolved_contract_version = requested_contract_version;
+
+  if (requested_contract_version) {
+    contract = await getContract({
+      domain_id: normalized_domain_id,
+      contract_version: requested_contract_version
+    });
+
+    if (!contract) {
+      const versions = await listContractsByDomain({ domain_id: normalized_domain_id });
+      const available_versions = versions.map((r) => r.contract_version);
+
+      const err = new Error(
+        `Contract ${normalized_domain_id}/${requested_contract_version} was not found`
+      );
+      err.statusCode = 404;
+      err.code = 'contract_not_found';
+      err.domain_id = normalized_domain_id;
+      err.contract_version = requested_contract_version;
+      err.available_versions = available_versions;
+      throw err;
+    }
+  } else {
+    contract = await getLatestContractByDomain({ domain_id: normalized_domain_id });
+
+    if (!contract) {
+      const err = new Error(`No contracts exist for domain ${normalized_domain_id}`);
+      err.statusCode = 404;
+      err.code = 'domain_has_no_contracts';
+      err.domain_id = normalized_domain_id;
+      throw err;
+    }
+
+    resolved_contract_version = contract.contract_version;
   }
 
   const id = crypto.randomUUID();
   const created_at_iso = nowIso();
 
-  // Use provided status if given, else default logic
-  const status = typeof statusOverride === 'string' ? statusOverride : (execution_mode === 'async' ? 'queued' : 'running');
+  const status =
+    typeof statusOverride === 'string'
+      ? statusOverride
+      : (execution_mode === 'async' ? 'queued' : 'running');
 
   const created_at = isoToMysqlDatetime3(created_at_iso);
 
-  // Prepare repair config
   let enabled = typeof repair.enabled === 'boolean' ? repair.enabled : false;
-  let max_attempts = Number.isFinite(repair.max_attempts) ? Math.max(0, Math.min(5, Math.floor(repair.max_attempts))) : 2;
+  let max_attempts = Number.isFinite(repair.max_attempts)
+    ? Math.max(0, Math.min(5, Math.floor(repair.max_attempts)))
+    : 2;
+
   const repair_json = JSON.stringify({ enabled, max_attempts });
 
-  // Insert minimal run record first (no output yet)
   const sql = `
     INSERT INTO runs
       (id, correlation_id, status, domain_id, contract_version, input_payload, created_at, repair_json)
@@ -108,31 +148,29 @@ async function createRun({ domain_id, contract_version, input_payload, correlati
     id,
     correlation_id: correlation_id || null,
     status,
-    domain_id,
-    contract_version,
+    domain_id: normalized_domain_id,
+    contract_version: resolved_contract_version,
     input_payload: JSON.stringify(input_payload),
     created_at,
     repair_json
   });
 
-  // Emit contract snapshot immediately (useful even before completion)
   await createArtifact({
     run_id: id,
     artifact_type: 'contract_snapshot',
     content: {
-      domain_id,
-      contract_version,
+      domain_id: normalized_domain_id,
+      contract_version: resolved_contract_version,
       schema_hash: contract.schema_hash
     }
   });
 
-  // Always just return the inserted run record, do not trigger execution here
   return {
     id,
     correlation_id: correlation_id || null,
     status,
-    domain_id,
-    contract_version,
+    domain_id: normalized_domain_id,
+    contract_version: resolved_contract_version,
     created_at: created_at_iso,
     completed_at: null
   };

@@ -91,4 +91,30 @@ async function upsertContract({ domain_id, contract_version, schema_json }) {
   };
 }
 
-module.exports = { listContracts, listContractsByDomain, getContract, upsertContract };
+async function getLatestContractByDomain({ domain_id }) {
+  const [rows] = await pool.execute(
+    `SELECT id, domain_id, contract_version, schema_json, schema_hash, created_at
+     FROM contracts
+     WHERE domain_id = ?
+     ORDER BY contract_version DESC
+     LIMIT 1`,
+    [domain_id]
+  );
+
+  if (!rows.length) return null;
+  const r = rows[0];
+
+  const schema_json =
+    typeof r.schema_json === 'string' ? JSON.parse(r.schema_json) : r.schema_json;
+
+  return {
+    id: r.id,
+    domain_id: r.domain_id,
+    contract_version: r.contract_version,
+    schema_json,
+    schema_hash: r.schema_hash,
+    created_at: r.created_at
+  };
+}
+
+module.exports = { listContracts, listContractsByDomain, getContract, upsertContract, getLatestContractByDomain };
