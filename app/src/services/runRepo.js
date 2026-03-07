@@ -235,4 +235,24 @@ async function getRun(id) {
   };
 }
 
-module.exports = { createRun, getRun };
+async function listRuns({ limit = 50 } = {}) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+
+  const [rows] = await pool.query(
+    `SELECT id, status, domain_id, contract_version, created_at, completed_at
+     FROM runs
+     ORDER BY created_at DESC
+     LIMIT ${safeLimit}`
+  );
+
+  return rows.map((r) => ({
+    id: r.id,
+    status: r.status,
+    domain_id: r.domain_id,
+    contract_version: r.contract_version,
+    created_at: mysqlDatetime3ToIso(r.created_at),
+    completed_at: r.completed_at ? mysqlDatetime3ToIso(r.completed_at) : null
+  }));
+}
+
+module.exports = { createRun, getRun, listRuns };

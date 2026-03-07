@@ -4,6 +4,7 @@ const express = require('express');
 const helmet = require('helmet');
 const { requestIdMiddleware } = require('./middleware/requestId');
 const { healthRouter } = require('./routes/health.routes');
+const { adminRouter } = require('./routes/admin.routes');
 const { v1Router } = require('./routes/v1.routes');
 const { accessLog } = require('./middleware/accessLog');
 const { corsAllowlist } = require('./middleware/cors');
@@ -19,6 +20,7 @@ app.use(accessLog);
 app.use(corsAllowlist);
 
 app.use(healthRouter);
+app.use('/admin', adminRouter);
 app.use('/v1', v1Router);
 
 app.use((req, res) => {
