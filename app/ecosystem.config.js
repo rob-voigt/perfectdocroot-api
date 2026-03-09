@@ -15,7 +15,8 @@ module.exports = {
       time: true,
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3000,
+        PDR_DEMO_MODE: '1'
       }
     },
     {

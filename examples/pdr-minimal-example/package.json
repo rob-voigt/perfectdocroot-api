@@ -1,0 +1,9 @@
+{
+  "name": "pdr-minimal-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node run.js"
+  }
+}
