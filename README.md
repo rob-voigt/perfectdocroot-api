@@ -4,7 +4,7 @@
 ![Status](https://img.shields.io/badge/status-developer--preview-orange)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 
-#### Governance infrastructure for AI workflows.
+#### Governance infrastructure for AI workflows
 
 PerfectDocRoot introduces a governed execution model for AI-assisted systems.
 Instead of prompt → response, executions operate through validated contracts,
@@ -139,19 +139,17 @@ Example run summary:
 
 Each run also produces:
 
-```
-execution_steps
-validation_reports
-artifacts
-provenance records
-```
+- execution_steps
+- validation_reports
+- artifacts
+- provenance records
+
 
 These can be inspected through the admin console:
 
-```
+
 http://127.0.0.1:3000/admin/runs
 
----
 
 ## Example Use Cases
 
@@ -182,7 +180,6 @@ Analyze uploaded reports or images and produce structured findings.
 PerfectDocRoot introduces a governance layer for AI execution.
 
 ```
-
 Application Backend
 │
 ▼
@@ -193,7 +190,6 @@ Execution Workers
 │
 ▼
 Artifacts + Provenance
-
 ```
 
 Core platform concepts:
@@ -215,12 +211,10 @@ PDR includes an operator interface for inspecting workflows.
 Example pages:
 
 ```
-
 /admin/contracts
 /admin/runs
 /admin/runs/:id
 /admin/workers
-
 ```
 
 The console allows developers to inspect:
@@ -236,7 +230,6 @@ The console allows developers to inspect:
 ## Repository Structure
 
 ```
-
 perfectdocroot/
 │
 ├── app/                     # core runtime
@@ -245,14 +238,12 @@ perfectdocroot/
 ├── contracts/               # contract schema examples
 ├── docs/                    # architecture documentation
 └── scripts/                 # development utilities
-
 ```
 
 If you're new, start here:
+
 ```
-
 examples/pdr-minimal-example
-
 ```
 
 ---
@@ -278,11 +269,9 @@ The focus now is **developer adoption and ecosystem growth**.
 The platform will evolve in three layers:
 
 ```
-
 Layer 1 — PDR Runtime (Open Source)
 Layer 2 — Developer Ecosystem
 Layer 3 — PDR Cloud Platform
-
 ```
 
 Future work includes:
@@ -299,9 +288,7 @@ Future work includes:
 Additional documentation is available in:
 
 ```
-
 docs/
-
 ```
 
 Topics include:
