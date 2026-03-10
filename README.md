@@ -35,7 +35,7 @@ I --> J["/admin/runs"]
 - 🧪 Example → [pdr-minimal-example](examples/pdr-minimal-example)
 ---
 
-#### Governance infrastructure for AI workflows
+## Governance infrastructure for AI workflows
 
 PerfectDocRoot introduces a governed execution model for AI-assisted systems.
 Instead of prompt → response, executions operate through validated contracts,
@@ -48,7 +48,7 @@ governed execution lifecycle.
 
 ---
 
-## 5-Minute Demo
+## Quick Start (60-second demo)
 
 Clone and run the API locally:
 
