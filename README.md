@@ -135,7 +135,7 @@ Example run summary:
     "input_hash": "360ca77ff02df8a8802329a59b2154fa"
   }
 }
-````
+```
 
 Each run also produces:
 
