@@ -28,6 +28,11 @@ H --> I[Admin Console Inspection]
 I --> J["/admin/runs"]
 ```
 
+### Jump To
+
+- 🚀 Run the demo → [5-Minute Demo](#5-minute-demo)
+- 📖 Architecture → [Architecture Overview](#architecture-overview)
+- 🧪 Example → [pdr-minimal-example](examples/pdr-minimal-example)
 ---
 
 #### Governance infrastructure for AI workflows
