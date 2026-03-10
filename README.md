@@ -4,6 +4,32 @@
 ![Status](https://img.shields.io/badge/status-developer--preview-orange)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 
+## How PerfectDocRoot Works
+
+```mermaid
+flowchart LR
+
+A[Application Code] --> B[PDR Run API]
+
+B --> C[Contract Validation]
+
+C --> D[Execution Worker]
+
+D --> E[Processing / AI Step]
+
+E --> F[Execution Steps Logged]
+
+F --> G[Artifacts Stored]
+
+G --> H[Provenance Generated]
+
+H --> I[Admin Console Inspection]
+
+I --> J["/admin/runs"]
+```
+
+---
+
 #### Governance infrastructure for AI workflows
 
 PerfectDocRoot introduces a governed execution model for AI-assisted systems.
