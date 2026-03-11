@@ -30,7 +30,7 @@ I --> J["/admin/runs"]
 
 ### Jump To
 
-- 🚀 Quick Start → [60-second Demo](#quick-start-60-second-demo)
+- 🚀 Quick Start → [Local Demo Setup](#quick-start-local-demo-setup)
 - 📖 Architecture → [Architecture Overview](#architecture-overview)
 - 🧪 Example → [pdr-minimal-example](examples/pdr-minimal-example)
 ---
@@ -48,9 +48,19 @@ governed execution lifecycle.
 
 ---
 
-## Quick Start (60-second demo)
+## Quick Start (local demo setup)
 
-Clone and run the API locally:
+Clone the repo and create your local environment file:
+
+```bash
+git clone https://github.com/rob-voigt/perfectdocroot-api
+cd perfectdocroot-api
+cp .env.example .env.local
+```
+
+Edit `.env.local` and set your local database credentials.
+
+Then start the API:
 
 ```bash
 cd app
@@ -58,19 +68,32 @@ npm install
 npm start
 ```
 
-Then open:
+Open the local admin console:
+
 <http://127.0.0.1:3000/admin/runs>
 
-You will immediately see a governed execution run, including:
+To generate your first governed run, open a second terminal and run:
 
-• input payload
-• validation report
-• execution steps
-• result
-• provenance hashes
-• generated artifacts
+```bash
+cd examples/pdr-minimal-example
+cp .env.example .env
+npm install
+npm start
+```
 
-This demonstrates the PerfectDocRoot governed execution model.
+Refresh `/admin/runs` and your new run should appear at the top of the list.
+
+---
+
+## What You’ll See
+
+The admin console shows recent governed runs stored in the configured database.
+
+Starting the API does not create a run automatically.
+
+To create your first run in a fresh local setup, run the minimal example and then refresh:
+
+<http://127.0.0.1:3000/admin/runs>
 
 ---
 
