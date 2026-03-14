@@ -15,16 +15,20 @@ yarn-error.log*
 # Environment / secrets
 # -----------------------
 
+# root env
 .env
 .env.*
 !.env.example
 
+# app env
 app/.env
 app/.env.*
 !app/.env.example
 
+# example envs
 examples/**/.env
 examples/**/.env.*
+!examples/**/.env.example
 
 # -----------------------
 # Logs
