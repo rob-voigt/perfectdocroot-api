@@ -6,6 +6,24 @@
 
 ---
 
+## PerfectDocRoot turns AI prompt calls into governed executions
+
+**Traditional AI systems:**
+prompt → response
+
+**PerfectDocRoot:**
+input
+  ↓
+contract validation
+  ↓
+execution worker
+  ↓
+artifacts + provenance
+  ↓
+inspectable run
+
+---
+
 ## ⚡ 60-Second Local Demo
 
 Run PerfectDocRoot locally and generate a governed execution.
@@ -40,6 +58,29 @@ http://127.0.0.1:3000/admin/runs
 ```
 
 You should now see your first **governed execution**.
+
+---
+
+## Current Capabilities
+
+PerfectDocRoot currently supports:
+
+- Contract-validated workflow executions
+- Async execution worker engine
+- Artifact storage and provenance tracking
+- Admin console for run inspection
+- Local developer runtime with example workflows
+
+---
+
+## Core Concepts
+
+| Concept     | Description                          |
+|-------------|--------------------------------------|
+| Contracts   | schemas that define structured expectations |
+| Runs        | governed workflow executions         |
+| Artifacts   | evidence produced during execution   |
+| Provenance  | full lineage of inputs, steps, and outputs |
 
 ---
 
@@ -302,19 +343,19 @@ PerfectDocRoot can govern many types of AI workflows.
 
 Examples include:
 
-### AI Document Processing
+#### AI Document Processing
 
 Convert unstructured documents into validated structured outputs.
 
-### Cybersecurity Risk Analysis
+#### Cybersecurity Risk Analysis
 
 Generate structured vendor risk reports with traceable reasoning.
 
-### Healthcare Compliance Review
+#### Healthcare Compliance Review
 
 Validate clinical or regulatory documentation against contract schemas.
 
-### Safety Audits
+#### Safety Audits
 
 Analyze uploaded reports or images and produce structured findings.
 
