@@ -1,0 +1,11 @@
+{
+  "name": "perfectdocroot-api-demo",
+  "private": true,
+  "scripts": {
+    "bootstrap": "bash app/scripts/bootstrap-db.sh",
+    "reset": "bash app/scripts/bootstrap-db.sh --reset",
+    "start-api": "cd app && npm start",
+    "run-example": "cd examples/pdr-minimal-example && npm start",
+    "demo": "npm run bootstrap && npm run start-api"
+  }
+}

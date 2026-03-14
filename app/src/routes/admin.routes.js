@@ -49,17 +49,11 @@ function allowPublicDemo(req) {
   if (path.startsWith('/runs/')) return true;
   if (path === '/contracts') return true;
   if (path.startsWith('/contracts/')) return true;
+  if (path === '/workers') return true;
   return false;
 }
 
 function requireAdminAccess(req, res, next) {
-  console.log('DEMO DEBUG', {
-    demo: process.env.PDR_DEMO_MODE,
-    method: req.method,
-    path: req.path,
-    normalized: normalizeDemoPath(req.path),
-    allowed: allowPublicDemo(req)
-  });
   if (allowPublicDemo(req)) {
     return next();
   }
@@ -204,17 +198,6 @@ router.get('/', requireAdminAccess, async (req, res, next) => {
         </div>
       </div>
 
-      <div class="card">
-        <h3>Planned MS18 pages</h3>
-        <ul>
-          <li><code>/admin/contracts</code></li>
-          <li><code>/admin/contracts/:domain_id</code></li>
-          <li><code>/admin/contracts/:domain_id/:contract_version</code></li>
-          <li><code>/admin/runs</code></li>
-          <li><code>/admin/runs/:id</code></li>
-          <li><code>/admin/workers</code></li>
-        </ul>
-      </div>
     `;
 
     return res.status(200).send(pageShell({
@@ -376,7 +359,7 @@ router.get('/runs', requireAdminAccess, async (req, res, next) => {
   }
 });
 
-router.get('/workers', requireApiKey, async (req, res, next) => {
+router.get('/workers', requireAdminAccess, async (req, res, next) => {
   try {
     const activeWindowMs = Number(process.env.PDR_WORKER_ACTIVE_WINDOW_MS || 15000);
     const failedRecentMinutes = Number(process.env.PDR_FAILED_RECENT_MINUTES || 60);
