@@ -4,6 +4,96 @@
 ![Status](https://img.shields.io/badge/status-developer--preview-orange)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen)
 
+---
+
+## ⚡ 60-Second Local Demo
+
+Run PerfectDocRoot locally and generate a governed execution.
+
+```bash
+git clone https://github.com/rob-voigt/perfectdocroot-api
+cd perfectdocroot-api
+
+cp .env.example .env.local
+
+cd app
+npm install
+cd ..
+
+npm run bootstrap
+npm run start-api
+```
+
+Then generate your first governed run:
+
+```bash
+cd examples/pdr-minimal-example
+cp .env.example .env
+npm install
+npm start
+```
+
+Open the admin console:
+
+```
+http://127.0.0.1:3000/admin/runs
+```
+
+You should now see your first **governed execution**.
+
+---
+
+## Why PerfectDocRoot Exists
+
+Most AI systems today operate through simple prompt interactions:
+
+```text
+prompt → response
+```
+
+This approach is powerful, but it introduces serious challenges in production systems:
+
+* nondeterministic behavior
+* limited traceability
+* weak governance
+* difficult auditing
+* unclear provenance
+
+PerfectDocRoot introduces a **governed execution model** for AI-assisted workflows.
+
+Instead of a prompt-response loop, executions run through validated contracts and structured execution steps:
+
+```text
+Input Payload
+    ↓
+Contract Validation
+    ↓
+Execution Worker
+    ↓
+Artifacts Generated
+    ↓
+Provenance Recorded
+    ↓
+Inspectable Run
+```
+
+Every run becomes a **traceable execution record**, not an opaque AI response.
+
+---
+
+## What PerfectDocRoot Provides
+
+PerfectDocRoot introduces a governed execution model for AI-assisted systems.
+Instead of prompt → response, executions operate through validated contracts,
+traceable inputs, and verifiable provenance artifacts.
+
+PerfectDocRoot sits between your application and AI systems, turning opaque AI responses into **validated, traceable workflow executions.**
+
+Developers can run PerfectDocRoot locally in minutes and observe a complete
+governed execution lifecycle.
+
+---
+
 ## How PerfectDocRoot Works
 
 ```mermaid
@@ -28,51 +118,84 @@ H --> I[Admin Console Inspection]
 I --> J["/admin/runs"]
 ```
 
-### Jump To
-
-- 🚀 Quick Start → [Local Demo Setup](#quick-start-local-demo-setup)
-- 📖 Architecture → [Architecture Overview](#architecture-overview)
-- 🧪 Example → [pdr-minimal-example](examples/pdr-minimal-example)
 ---
 
-## Governance infrastructure for AI workflows
+## 🚀 Developer Quick Start
 
-PerfectDocRoot introduces a governed execution model for AI-assisted systems.
-Instead of prompt → response, executions operate through validated contracts,
-traceable inputs, and verifiable provenance artifacts.
+Run PerfectDocRoot locally and generate your first governed execution in minutes.
 
-PerfectDocRoot sits between your application and AI systems, turning opaque AI responses into **validated, traceable workflow executions.**
-
-Developers can run PerfectDocRoot locally in minutes and observe a complete
-governed execution lifecycle.
-
----
-
-## Quick Start (local demo setup)
-
-Clone the repo and create your local environment file:
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/rob-voigt/perfectdocroot-api
 cd perfectdocroot-api
+```
+
+### 2. Configure Your Local Environment
+
+Copy the environment template:
+
+```bash
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and set your local database credentials.
+Edit `.env.local` and set your database credentials:
 
-Then start the API:
+```
+DB_HOST=127.0.0.1
+DB_USER=your_mysql_user
+DB_PASS=your_mysql_password
+DB_NAME=pdr_api_public
+```
+
+### 3. Install Dependencies
 
 ```bash
 cd app
 npm install
-npm start
+cd ..
 ```
 
-Open the local admin console:
+### 4. Bootstrap the Database
 
-<http://127.0.0.1:3000/admin/runs>
+Create the database schema and seed the example contracts:
 
-To generate your first governed run, open a second terminal and run:
+```bash
+npm run bootstrap
+```
+
+Expected output:
+
+```
+PerfectDocRoot DB Bootstrap
+Schema imported
+[seed] inserted healthcare contracts: 0.2 and 0.1
+Bootstrap complete
+```
+
+### 5. Start the API
+
+```bash
+npm run start-api
+```
+
+The API should start on:
+
+```
+http://127.0.0.1:3000
+```
+
+Open the admin console:
+
+```
+http://127.0.0.1:3000/admin/runs
+```
+
+You will not see any runs yet — that is expected.
+
+### 6. Generate Your First Governed Run
+
+Open a second terminal and run the minimal example:
 
 ```bash
 cd examples/pdr-minimal-example
@@ -81,84 +204,51 @@ npm install
 npm start
 ```
 
-Refresh `/admin/runs` and your new run should appear at the top of the list.
-
----
-
-## What You’ll See
-
-The admin console shows recent governed runs stored in the configured database.
-
-Starting the API does not create a run automatically.
-
-To create your first run in a fresh local setup, run the minimal example and then refresh:
-
-<http://127.0.0.1:3000/admin/runs>
-
----
-
-## Inspect Every AI Run
-
-PerfectDocRoot records validation results, artifacts, and provenance for every workflow execution.
-
-![PerfectDocRoot Run Inspection](docs/images/pdr-run-inspection.png)
-
----
-
-## The Problem
-
-Most AI systems operate through free-form prompts.
-
-This creates challenges:
-
-- no deterministic behavior
-- limited traceability
-- weak governance
-- difficult auditing
-
----
-
-## The PerfectDocRoot Model
-
-PerfectDocRoot replaces prompt execution with governed runs.
-
-Execution flow:
+You should see:
 
 ```
-Input Payload
-→ Contract Validation
-→ Execution
-→ Provenance Recording
-→ Artifact Generation
+Creating governed run...
+Run created successfully
 ```
+
+### 7. Inspect the Run
+
+Refresh the admin console:
+
+```
+http://127.0.0.1:3000/admin/runs
+```
+
+You will now see your first governed execution.
+
+Click the run to inspect:
+
+* validation results
+* execution steps
+* artifacts
+* provenance data
 
 ---
 
-## Governed Execution Model
+### What Just Happened
 
-```mermaid
-flowchart TD
-
-A[Developer Code/Application] --> B[Create Run API]
-
-B --> C[Contract Validation]
-
-C --> D[Execution Worker]
-
-D --> E[AI / Processing Step]
-
-E --> F[Execution Steps Recorded]
-
-F --> G[Artifacts Stored]
-
-G --> H[Provenance Generated]
-
-H --> I[Admin Console Inspection]
-
-I --> J["/admin/runs"]
-
+You executed a **governed AI workflow**:
 
 ```
+Application
+   ↓
+PDR Run API
+   ↓
+Contract Validation
+   ↓
+Execution Worker
+   ↓
+Artifacts + Provenance
+   ↓
+Admin Console Inspection
+```
+
+PerfectDocRoot turns opaque AI calls into **auditable workflow executions**.
 
 ---
 
@@ -204,6 +294,7 @@ These can be inspected through the admin console:
 
 http://127.0.0.1:3000/admin/runs
 
+---
 
 ## Example Use Cases
 
@@ -362,7 +453,14 @@ If you experiment with PerfectDocRoot in your own project, we'd love to hear abo
 
 ---
 
+### Jump To
+
+- 🚀 Quick Start → [Local Demo Setup](#quick-start-local-demo-setup)
+- 📖 Architecture → [Architecture Overview](#architecture-overview)
+- 🧪 Example → [pdr-minimal-example](examples/pdr-minimal-example)
+
+---
+
 ## License
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-
