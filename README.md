@@ -6,12 +6,13 @@
 
 ---
 
-## PerfectDocRoot turns AI prompt calls into governed executions
+## PerfectDocRoot turns AI prompt calls into governed executions.
 
 **Traditional AI systems:**
 prompt → response
 
 **PerfectDocRoot:**
+
 input
   ↓
 contract validation
@@ -21,6 +22,8 @@ execution worker
 artifacts + provenance
   ↓
 inspectable run
+
+Unlike traditional AI that offers simple prompt-response interactions, PerfectDocRoot enforces a structured, traceable process.
 
 ---
 
