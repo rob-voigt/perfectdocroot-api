@@ -13,17 +13,9 @@ prompt → response
 
 **PerfectDocRoot:**
 
-input
-  ↓
-contract validation
-  ↓
-execution worker
-  ↓
-artifacts + provenance
-  ↓
-inspectable run
+input → contract validation → execution worker → artifacts + provenance → inspectable run
 
-Unlike traditional AI that offers simple prompt-response interactions, PerfectDocRoot enforces a structured, traceable process.
+Unlike traditional AI that offers simple prompt-response interactions, **PerfectDocRoot enforces a structured, traceable process**.
 
 ---
 
