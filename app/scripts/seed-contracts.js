@@ -9,37 +9,8 @@ const { pool } = require('../src/db/mysql');
 
 async function main() {
   await upsertContract({
-    domain_id: 'healthcare',
-    contract_version: '0.2',
-    schema_json: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        hello: { type: 'string' },
-        goodbye: { type: 'string' }
-      },
-      required: ['hello', 'goodbye']
-    }
-  });
-
-  await upsertContract({
-    domain_id: 'healthcare',
-    contract_version: '0.1',
-    schema_json: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        hello: { type: 'string' }
-      },
-      required: ['hello']
-    }
-  });
-
-    await upsertContract({
     domain_id: 'safety',
-    contract_version: '1.0',
+      contract_version: '1.1',
     schema_json: {
       $schema: 'https://json-schema.org/draft/2020-12/schema',
       oneOf: [
@@ -99,6 +70,67 @@ async function main() {
             }
           },
           required: ['audit_case', 'uploaded_images']
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            audit_case_id: { type: 'string', minLength: 1 },
+            artifact_ids: {
+              type: 'array',
+              items: { type: 'string', minLength: 1 }
+            },
+            images: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  image_id: { type: 'string', minLength: 1 },
+                  artifact_id: { type: 'string', minLength: 1 },
+                  file_name: { type: 'string', minLength: 1 },
+                  mime_type: { type: 'string', minLength: 1 },
+                  sha256_hash: { type: 'string', minLength: 1 },
+                  status: { type: 'string', const: 'registered' }
+                },
+                required: [
+                  'image_id',
+                  'artifact_id',
+                  'file_name',
+                  'mime_type',
+                  'sha256_hash',
+                  'status'
+                ]
+              }
+            },
+            validation_report: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                report_id: { type: 'string', minLength: 1 },
+                domain_id: { type: 'string', const: 'safety' },
+                contract_version: { type: 'string', minLength: 1 },
+                pass: { type: 'boolean' },
+                score: { type: 'integer', minimum: 0, maximum: 100 },
+                issues: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      path: { type: 'string' },
+                      keyword: { type: 'string' },
+                      message: { type: 'string' }
+                    },
+                    required: ['path', 'keyword', 'message']
+                  }
+                },
+                created_at: { type: 'string', minLength: 1 }
+              }
+            }
+          },
+          required: ['audit_case_id', 'artifact_ids', 'images', 'validation_report']
         },
         {
           type: 'object',
@@ -305,7 +337,7 @@ async function main() {
     }
   });
 
-  console.log('[seed] inserted contracts: healthcare 0.2, healthcare 0.1, safety 1.0');
+  console.log('[seed] inserted contract: safety 1.1');
 }
 
 main()

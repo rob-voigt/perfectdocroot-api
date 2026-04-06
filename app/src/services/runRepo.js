@@ -30,6 +30,36 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function extractCandidateSeed(input_payload) {
+  if (input_payload && typeof input_payload === 'object' && !Array.isArray(input_payload)) {
+    if (
+      Object.prototype.hasOwnProperty.call(input_payload, 'input_payload') &&
+      Object.prototype.hasOwnProperty.call(input_payload, 'inputs')
+    ) {
+      const candidateSeed = input_payload.input_payload;
+      if (candidateSeed && typeof candidateSeed === 'object' && !Array.isArray(candidateSeed)) {
+        return candidateSeed;
+      }
+      return {};
+    }
+    return input_payload;
+  }
+
+  return {};
+}
+
+function looksLikeSafetyIngestPayload(domain_id, input_payload) {
+  if (domain_id !== 'safety') return false;
+
+  const candidateSeed = extractCandidateSeed(input_payload);
+  return !!(
+    candidateSeed &&
+    typeof candidateSeed === 'object' &&
+    candidateSeed.audit_case &&
+    Array.isArray(candidateSeed.uploaded_images)
+  );
+}
+
 // MySQL DATETIME(3) expects 'YYYY-MM-DD HH:MM:SS.mmm'
 function isoToMysqlDatetime3(iso) {
   const d = new Date(iso);
@@ -98,13 +128,19 @@ async function createRun({
   const requested_contract_version =
     typeof contract_version === 'string' ? contract_version.trim() : '';
 
-  let contract = null;
-  let resolved_contract_version = requested_contract_version;
+  const effective_requested_contract_version =
+    looksLikeSafetyIngestPayload(normalized_domain_id, input_payload) &&
+    (!requested_contract_version || requested_contract_version === '1.0')
+      ? '1.1'
+      : requested_contract_version;
 
-  if (requested_contract_version) {
+  let contract = null;
+  let resolved_contract_version = effective_requested_contract_version;
+
+  if (effective_requested_contract_version) {
     contract = await getContract({
       domain_id: normalized_domain_id,
-      contract_version: requested_contract_version
+      contract_version: effective_requested_contract_version
     });
 
     if (!contract) {
@@ -112,12 +148,12 @@ async function createRun({
       const available_versions = versions.map((r) => r.contract_version);
 
       const err = new Error(
-        `Contract ${normalized_domain_id}/${requested_contract_version} was not found`
+        `Contract ${normalized_domain_id}/${effective_requested_contract_version} was not found`
       );
       err.statusCode = 404;
       err.code = 'contract_not_found';
       err.domain_id = normalized_domain_id;
-      err.contract_version = requested_contract_version;
+      err.contract_version = effective_requested_contract_version;
       err.available_versions = available_versions;
       throw err;
     }

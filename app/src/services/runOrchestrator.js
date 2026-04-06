@@ -78,6 +78,43 @@ function normalizeRunInputEnvelope(input_payload) {
   return { candidate_seed: input_payload || {}, inputs: [], isEnvelope: false };
 }
 
+function buildSafetyIngestCandidate(workingPayload, validationReport) {
+  const auditCase =
+    workingPayload?.audit_case && typeof workingPayload.audit_case === 'object'
+      ? workingPayload.audit_case
+      : {};
+  const uploadedImages = Array.isArray(workingPayload?.uploaded_images)
+    ? workingPayload.uploaded_images
+    : [];
+  const artifact_ids = Array.from(
+    new Set(
+      (Array.isArray(workingPayload?.inputs) ? workingPayload.inputs : [])
+        .map((input) => {
+          if (!input || typeof input !== 'object') return null;
+          if (typeof input.artifact_id === 'string' && input.artifact_id.trim()) {
+            return input.artifact_id.trim();
+          }
+          return null;
+        })
+        .filter(Boolean)
+    )
+  );
+
+  return {
+    audit_case_id: auditCase.audit_case_id || null,
+    artifact_ids,
+    images: uploadedImages.map((image) => ({
+      image_id: image.image_id,
+      artifact_id: image.artifact_id || image.image_id,
+      file_name: image.file_name,
+      mime_type: image.mime_type,
+      sha256_hash: image.sha256_hash,
+      status: 'registered'
+    })),
+    validation_report: validationReport || {}
+  };
+}
+
 async function loadArtifactMeta(artifact_id) {
   const [uploadedRows] = await pool.execute(
     `SELECT id,
@@ -558,30 +595,78 @@ async function executeRun(run_id) {
       previous_step_id = repairStep.id;
     }
 
+    let finalCandidate = candidate;
+    let finalValidationReport = final_validation_report;
+    let finalPass = final_pass;
+
+    const workingPayload = candidate;
+
+    const looksLikeSafetyIngest =
+      workingPayload &&
+      typeof workingPayload === 'object' &&
+      workingPayload.audit_case &&
+      Array.isArray(workingPayload.uploaded_images);
+
+    console.log('[orchestrator] domain_id:', domain_id);
+    console.log('[orchestrator] looksLikeSafetyIngest:', looksLikeSafetyIngest);
+    console.log('[orchestrator] schema properties:', Object.keys(contract.schema_json?.properties || {}));
+
+    if (domain_id === 'safety' && looksLikeSafetyIngest) {
+      const ingestContract = await getContract({ domain_id: 'safety', contract_version: '1.1' });
+      const validationSchema = ingestContract?.schema_json || contract.schema_json;
+
+      console.log('[orchestrator] applying buildSafetyIngestCandidate');
+      finalCandidate = buildSafetyIngestCandidate(workingPayload, {});
+      console.log('[orchestrator] ingest schema properties:', Object.keys(validationSchema?.properties || {}));
+      console.log('[orchestrator] transformed candidate:', JSON.stringify(finalCandidate, null, 2));
+
+      const { ok, issues } = validateAgainstSchema(validationSchema, finalCandidate);
+
+      const pass = !!ok;
+      const score = pass ? 100 : Math.max(0, 100 - (issues?.length || 0) * 10);
+
+      finalValidationReport = {
+        report_id: crypto.randomUUID(),
+        domain_id,
+        contract_version: ingestContract?.contract_version || contract_version,
+        pass,
+        score,
+        issues: issues || [],
+        created_at: nowIso()
+      };
+
+      finalPass = pass;
+      finalCandidate.validation_report = finalValidationReport;
+
+      console.log('[orchestrator] revalidated finalCandidate:', JSON.stringify(finalValidationReport, null, 2));
+    }
+
     // Compute final output hash (include input_hash linkage)
     const output_for_hash = {
       input_hash: final_input_hash,
       validation: {
-        pass: final_validation_report?.pass,
-        score: final_validation_report?.score,
-        issues: final_validation_report?.issues
+        pass: finalValidationReport?.pass,
+        score: finalValidationReport?.score,
+        issues: finalValidationReport?.issues
       },
-      result: { message: 'Run executed (MS14 async lifecycle)', candidate }
+      result: { message: 'Run executed (MS14 async lifecycle)', candidate: finalCandidate }
     };
     const final_output_hash = sha256HexFromObject(output_for_hash);
 
+    console.log('[orchestrator] finalCandidate before persist:', JSON.stringify(finalCandidate, null, 2));
+
     const final_result = {
       message: 'Run executed (MS14 async lifecycle)',
-      candidate,
+      candidate: finalCandidate,
       repair_summary: {
         enabled: repairEnabled,
         max_attempts: repairMaxAttempts,
-        final_pass: !!final_validation_report?.pass
+        final_pass: !!finalValidationReport?.pass
       }
     };
 
     // Artifacts
-    await createArtifact({ run_id, artifact_type: 'validation_report', content: final_validation_report });
+    await createArtifact({ run_id, artifact_type: 'validation_report', content: finalValidationReport });
     await createArtifact({
       run_id,
       artifact_type: 'contract_snapshot',
@@ -602,10 +687,10 @@ async function executeRun(run_id) {
         WHERE id = ?
         LIMIT 1`,
       [
-        final_pass ? 'succeeded' : 'failed',
+        finalPass ? 'succeeded' : 'failed',
         final_input_hash,
         final_output_hash,
-        JSON.stringify(final_validation_report),
+        JSON.stringify(finalValidationReport),
         JSON.stringify(final_result),
         JSON.stringify(provenance),
         isoToMysqlDatetime3(completed_at_iso),
