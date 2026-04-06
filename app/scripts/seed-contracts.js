@@ -175,6 +175,131 @@ async function main() {
             }
           },
           required: ['audit_case_id', 'artifact_ids', 'hazard_taxonomy', 'severity_scale']
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            audit_case_id: { type: 'string', minLength: 1 },
+            image_findings: {
+              type: 'array',
+              items: {
+                type: 'object'
+              }
+            }
+          },
+          required: ['audit_case_id', 'image_findings']
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            audit_case_id: { type: 'string', minLength: 1 },
+            image_findings: {
+              type: 'array',
+              items: {
+                type: 'object'
+              }
+            },
+            assumptions: {
+              type: 'array',
+              items: {
+                type: 'object'
+              }
+            },
+            mitigation_guidelines: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                pack_version: { type: 'string', minLength: 1 },
+                domain_id: { type: 'string', const: 'safety' },
+                mitigations: {
+                  type: 'object'
+                }
+              },
+              required: ['pack_version', 'domain_id', 'mitigations']
+            },
+            severity_scale: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                pack_version: { type: 'string', minLength: 1 },
+                domain_id: { type: 'string', const: 'safety' },
+                severity_levels: {
+                  type: 'array',
+                  minItems: 1,
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      level: {
+                        type: 'string',
+                        enum: ['low', 'medium', 'high', 'critical']
+                      },
+                      description: { type: 'string', minLength: 1 }
+                    },
+                    required: ['level', 'description']
+                  }
+                },
+                likelihood_levels: {
+                  type: 'array',
+                  minItems: 1,
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      level: {
+                        type: 'string',
+                        enum: ['low', 'medium', 'high']
+                      },
+                      description: { type: 'string', minLength: 1 }
+                    },
+                    required: ['level', 'description']
+                  }
+                }
+              },
+              required: ['pack_version', 'domain_id', 'severity_levels', 'likelihood_levels']
+            }
+          },
+          required: [
+            'audit_case_id',
+            'image_findings',
+            'assumptions',
+            'mitigation_guidelines',
+            'severity_scale'
+          ]
+        },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            audit_case_id: { type: 'string', minLength: 1 },
+            findings: {
+              type: 'array',
+              items: { type: 'object' }
+            },
+            assumptions: {
+              type: 'array',
+              items: { type: 'object' }
+            },
+            risks: {
+              type: 'array',
+              items: { type: 'object' }
+            },
+            evidence_references: {
+              type: 'array',
+              items: { type: 'string' }
+            },
+            report_style_guide: { type: 'string', minLength: 1 }
+          },
+          required: [
+            'audit_case_id',
+            'findings',
+            'assumptions',
+            'risks',
+            'evidence_references',
+            'report_style_guide'
+          ]
         }
       ]
     }
