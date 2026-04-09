@@ -205,7 +205,8 @@ Expected output:
 ```
 PerfectDocRoot DB Bootstrap
 Schema imported
-[seed] inserted healthcare contracts: 0.2 and 0.1
+[seed] inserted contract: healthcare 1.0
+[seed] inserted contract: safety 1.1
 Bootstrap complete
 ```
 
@@ -298,7 +299,7 @@ Example run summary:
 {
   "id": "988181cb-4bcb-4dde-a6f3-24810a2d21be",
   "domain_id": "healthcare",
-  "contract_version": "0.2",
+  "contract_version": "1.0",
   "status": "succeeded",
   "validation_report": {
     "pass": true,

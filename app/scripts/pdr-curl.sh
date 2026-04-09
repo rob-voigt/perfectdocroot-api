@@ -71,7 +71,7 @@ case "${cmd}" in
   run-create-async)
     need_key
     DOMAIN_ID="${1:-healthcare}"
-    CONTRACT_VERSION="${2:-0.1}"
+    CONTRACT_VERSION="${2:-1.0}"
     curl -sS -X POST "${BASE}/v1/runs" \
       -H "Content-Type: application/json" \
       -H "X-PDR-API-KEY: ${PDR_API_KEY}" \
@@ -92,7 +92,7 @@ case "${cmd}" in
       -H "X-PDR-API-KEY: ${PDR_API_KEY}" \
       -d "{
         \"domain_id\":\"healthcare\",
-        \"contract_version\":\"0.1\",
+        \"contract_version\":\"1.0\",
         \"input_payload\": {\"hello\":\"world\"},
         \"inputs\": [
           {\"type\":\"artifact_ref\",\"artifact_id\":\"${ARTIFACT_ID}\",\"purpose\":\"evidence\",\"required\": true}

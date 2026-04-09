@@ -7,7 +7,19 @@ require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
 const { upsertContract } = require('../src/services/contractRepo');
 const { pool } = require('../src/db/mysql');
 
+function readContractSchema(fileName) {
+  return JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, `../contracts/${fileName}`), 'utf8')
+  );
+}
+
 async function main() {
+  await upsertContract({
+    domain_id: 'healthcare',
+    contract_version: '1.0',
+    schema_json: readContractSchema('healthcare-1.0-input.json')
+  });
+
   await upsertContract({
     domain_id: 'safety',
       contract_version: '1.1',
@@ -337,6 +349,7 @@ async function main() {
     }
   });
 
+  console.log('[seed] inserted contract: healthcare 1.0');
   console.log('[seed] inserted contract: safety 1.1');
 }
 
