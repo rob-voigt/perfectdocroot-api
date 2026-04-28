@@ -115,6 +115,57 @@ function buildSafetyIngestCandidate(workingPayload, validationReport) {
   };
 }
 
+const SAFETY_ONLY_FIELDS = new Set(['image_findings']);
+
+function cloneJsonValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneJsonValue(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, nested] of Object.entries(value)) {
+      out[key] = cloneJsonValue(nested);
+    }
+    return out;
+  }
+
+  return value;
+}
+
+function removeSafetyOnlyFields(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => removeSafetyOnlyFields(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, nested] of Object.entries(value)) {
+      if (SAFETY_ONLY_FIELDS.has(key)) continue;
+      out[key] = removeSafetyOnlyFields(nested);
+    }
+    return out;
+  }
+
+  return value;
+}
+
+function isSafetyIngestCandidate(candidate) {
+  return !!(
+    candidate &&
+    typeof candidate === 'object' &&
+    candidate.audit_case &&
+    Array.isArray(candidate.uploaded_images)
+  );
+}
+
+function selectDomainExecutionPath(domain_id) {
+  if (domain_id === 'safety') return 'safety';
+  if (domain_id === 'healthcare') return 'healthcare';
+  if (domain_id === 'research') return 'research';
+  return typeof domain_id === 'string' && domain_id.trim() ? domain_id.trim() : 'healthcare';
+}
+
 async function loadArtifactMeta(artifact_id) {
   const [uploadedRows] = await pool.execute(
     `SELECT id,
@@ -599,27 +650,15 @@ async function executeRun(run_id) {
     let finalValidationReport = final_validation_report;
     let finalPass = final_pass;
 
-    const workingPayload = candidate;
+    const workingPayload = cloneJsonValue(candidate);
+    const domainPath = selectDomainExecutionPath(domain_id);
+    console.log(`[execution] domain_path_selected: ${domainPath}`);
 
-    const looksLikeSafetyIngest =
-      workingPayload &&
-      typeof workingPayload === 'object' &&
-      workingPayload.audit_case &&
-      Array.isArray(workingPayload.uploaded_images);
-
-    console.log('[orchestrator] domain_id:', domain_id);
-    console.log('[orchestrator] looksLikeSafetyIngest:', looksLikeSafetyIngest);
-    console.log('[orchestrator] schema properties:', Object.keys(contract.schema_json?.properties || {}));
-
-    if (domain_id === 'safety' && looksLikeSafetyIngest) {
+    if (domainPath === 'safety' && isSafetyIngestCandidate(workingPayload)) {
       const ingestContract = await getContract({ domain_id: 'safety', contract_version: '1.1' });
       const validationSchema = ingestContract?.schema_json || contract.schema_json;
 
-      console.log('[orchestrator] applying buildSafetyIngestCandidate');
       finalCandidate = buildSafetyIngestCandidate(workingPayload, {});
-      console.log('[orchestrator] ingest schema properties:', Object.keys(validationSchema?.properties || {}));
-      console.log('[orchestrator] transformed candidate:', JSON.stringify(finalCandidate, null, 2));
-
       const { ok, issues } = validateAgainstSchema(validationSchema, finalCandidate);
 
       const pass = !!ok;
@@ -637,8 +676,23 @@ async function executeRun(run_id) {
 
       finalPass = pass;
       finalCandidate.validation_report = finalValidationReport;
+    } else if (domainPath !== 'safety') {
+      finalCandidate = removeSafetyOnlyFields(workingPayload);
 
-      console.log('[orchestrator] revalidated finalCandidate:', JSON.stringify(finalValidationReport, null, 2));
+      const { ok, issues } = validateAgainstSchema(contract.schema_json, finalCandidate);
+      const pass = !!ok;
+      const score = pass ? 100 : Math.max(0, 100 - (issues?.length || 0) * 10);
+
+      finalValidationReport = {
+        report_id: crypto.randomUUID(),
+        domain_id,
+        contract_version,
+        pass,
+        score,
+        issues: issues || [],
+        created_at: nowIso()
+      };
+      finalPass = pass;
     }
 
     // Compute final output hash (include input_hash linkage)
@@ -652,8 +706,6 @@ async function executeRun(run_id) {
       result: { message: 'Run executed (MS14 async lifecycle)', candidate: finalCandidate }
     };
     const final_output_hash = sha256HexFromObject(output_for_hash);
-
-    console.log('[orchestrator] finalCandidate before persist:', JSON.stringify(finalCandidate, null, 2));
 
     const final_result = {
       message: 'Run executed (MS14 async lifecycle)',
@@ -694,7 +746,7 @@ async function executeRun(run_id) {
         JSON.stringify(final_result),
         JSON.stringify(provenance),
         isoToMysqlDatetime3(completed_at_iso),
-        JSON.stringify(candidate),
+        JSON.stringify(finalCandidate),
         run_id
       ]
     );
@@ -713,4 +765,11 @@ async function executeRun(run_id) {
   }
 }
 
-module.exports = { executeRun };
+module.exports = {
+  executeRun,
+  __private: {
+    isSafetyIngestCandidate,
+    selectDomainExecutionPath,
+    removeSafetyOnlyFields
+  }
+};

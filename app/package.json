@@ -10,7 +10,9 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "verify:contract": "node scripts/verify-contract-schema.js"
   },
   "dependencies": {
     "ajv": "^8.18.0",

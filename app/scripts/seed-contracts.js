@@ -4,8 +4,9 @@ const fs = require("fs");
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env.local') });
 
-const { upsertContract } = require('../src/services/contractRepo');
+const { getContract, upsertContract } = require('../src/services/contractRepo');
 const { pool } = require('../src/db/mysql');
+const { sha256HexFromObject } = require('../src/utils/hash');
 
 function readContractSchema(fileName) {
   return JSON.parse(
@@ -13,16 +14,50 @@ function readContractSchema(fileName) {
   );
 }
 
+async function ensureContract({ domain_id, contract_version, schema_json }) {
+  const existing = await getContract({ domain_id, contract_version });
+  const schema_hash = sha256HexFromObject(schema_json);
+
+  if (existing) {
+    if (existing.schema_hash === schema_hash) {
+      console.log(`[seed] unchanged contract: ${domain_id} ${contract_version}`);
+      return existing;
+    }
+
+    await pool.execute(
+      `UPDATE contracts
+          SET schema_json = ?,
+              schema_hash = ?
+        WHERE id = ?
+        LIMIT 1`,
+      [JSON.stringify(schema_json), schema_hash, existing.id]
+    );
+
+    console.log(`[seed] updated contract schema: ${domain_id} ${contract_version}`);
+    return getContract({ domain_id, contract_version });
+  }
+
+  await upsertContract({ domain_id, contract_version, schema_json });
+  console.log(`[seed] created contract: ${domain_id} ${contract_version}`);
+  return getContract({ domain_id, contract_version });
+}
+
 async function main() {
-  await upsertContract({
+  await ensureContract({
     domain_id: 'healthcare',
     contract_version: '1.0',
     schema_json: readContractSchema('healthcare-1.0-input.json')
   });
 
-  await upsertContract({
+  await ensureContract({
+    domain_id: 'research',
+    contract_version: '1.0',
+    schema_json: readContractSchema('research-1.0-input.json')
+  });
+
+  await ensureContract({
     domain_id: 'safety',
-      contract_version: '1.1',
+    contract_version: '1.1',
     schema_json: {
       $schema: 'https://json-schema.org/draft/2020-12/schema',
       oneOf: [
@@ -348,9 +383,6 @@ async function main() {
       ]
     }
   });
-
-  console.log('[seed] inserted contract: healthcare 1.0');
-  console.log('[seed] inserted contract: safety 1.1');
 }
 
 main()

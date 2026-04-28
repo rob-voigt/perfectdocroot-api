@@ -41,4 +41,6 @@ const config = {
   }
 };
 
+console.log('[DB NAME]', process.env.DB_NAME);
+
 module.exports = { config };
