@@ -91,7 +91,6 @@ async function main() {
             },
             uploaded_images: {
               type: 'array',
-              minItems: 1,
               items: {
                 type: 'object',
                 additionalProperties: false,
@@ -114,6 +113,31 @@ async function main() {
                   'sort_order'
                 ]
               }
+            },
+            inputs: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                text: { type: ['string', 'null'] },
+                images: {
+                  type: 'array',
+                  items: {
+                    type: 'object'
+                  }
+                },
+                artifacts: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      artifact_id: { type: 'string', minLength: 1 },
+                      source_image_id: { type: ['string', 'null'] }
+                    },
+                    required: ['artifact_id']
+                  }
+                }
+              }
             }
           },
           required: ['audit_case', 'uploaded_images']
@@ -129,7 +153,6 @@ async function main() {
             },
             images: {
               type: 'array',
-              minItems: 1,
               items: {
                 type: 'object',
                 additionalProperties: false,
