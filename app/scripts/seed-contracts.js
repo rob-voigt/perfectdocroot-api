@@ -369,7 +369,48 @@ async function main() {
               type: 'array',
               items: { type: 'string' }
             },
-            report_style_guide: { type: 'string', minLength: 1 }
+            report_style_guide: { type: 'string', minLength: 1 },
+            no_findings_basis: { type: 'string', minLength: 1 },
+            input_limitations: {
+              type: 'array',
+              items: { type: 'string', minLength: 1 }
+            },
+            recommended_next_inputs: {
+              type: 'array',
+              items: { type: 'string', minLength: 1 }
+            },
+            confidence_level: {
+              type: 'string',
+              enum: ['low', 'moderate', 'high']
+            },
+            clarification_summary: {
+              type: 'string',
+              minLength: 1
+            },
+            clarification_questions: {
+              type: 'array',
+              items: {
+                oneOf: [
+                  {
+                    type: 'string',
+                    minLength: 1
+                  },
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      question_id: { type: 'string', minLength: 1 },
+                      question: { type: 'string', minLength: 1 },
+                      priority: {
+                        type: 'string',
+                        enum: ['low', 'medium', 'high']
+                      }
+                    },
+                    required: ['question']
+                  }
+                ]
+              }
+            }
           },
           required: [
             'audit_case_id',
