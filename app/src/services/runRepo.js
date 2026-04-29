@@ -117,11 +117,13 @@ async function createRun({
   domain_id,
   contract_version,
   input_payload,
+  stage_id = null,
   correlation_id,
   execution_mode = 'sync',
   repair = {},
   status: statusOverride
 } = {}) {
+  console.log('[trace] entering runRepo.createRun');
   const normalized_domain_id =
     typeof domain_id === 'string' ? domain_id.trim() : '';
 
@@ -188,6 +190,49 @@ async function createRun({
 
   const repair_json = JSON.stringify({ enabled, max_attempts });
 
+  const normalized_stage_id =
+    typeof stage_id === 'string' && stage_id.trim()
+      ? stage_id.trim()
+      : null;
+
+  const isInputEnvelope =
+    input_payload &&
+    typeof input_payload === 'object' &&
+    !Array.isArray(input_payload) &&
+    Object.prototype.hasOwnProperty.call(input_payload, 'input_payload') &&
+    Object.prototype.hasOwnProperty.call(input_payload, 'inputs');
+
+  const candidate_for_storage = isInputEnvelope
+    ? (
+      input_payload.input_payload &&
+      typeof input_payload.input_payload === 'object' &&
+      !Array.isArray(input_payload.input_payload)
+        ? input_payload.input_payload
+        : {}
+    )
+    : (
+      input_payload &&
+      typeof input_payload === 'object' &&
+      !Array.isArray(input_payload)
+        ? input_payload
+        : {}
+    );
+  const inputs_for_storage = isInputEnvelope
+    ? (Array.isArray(input_payload.inputs) ? input_payload.inputs : [])
+    : [];
+
+  const wrapped_input_payload =
+    normalized_stage_id
+      ? {
+          input_payload: candidate_for_storage,
+          inputs: inputs_for_storage,
+          __run_meta: {
+            stage_id: normalized_stage_id,
+            execution_mode
+          }
+        }
+      : input_payload;
+
   const sql = `
     INSERT INTO runs
       (id, correlation_id, status, domain_id, contract_version, input_payload, created_at, repair_json)
@@ -201,7 +246,7 @@ async function createRun({
     status,
     domain_id: normalized_domain_id,
     contract_version: resolved_contract_version,
-    input_payload: JSON.stringify(input_payload),
+    input_payload: JSON.stringify(wrapped_input_payload),
     created_at,
     repair_json
   });

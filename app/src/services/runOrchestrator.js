@@ -59,12 +59,13 @@ function isSha256Hex(s) {
 }
 
 function normalizeRunInputEnvelope(input_payload) {
+  console.log('[trace] entering runOrchestrator.normalizeRunInputEnvelope');
   // MS15A: either legacy (candidate object), or envelope { input_payload, inputs }
   if (input_payload && typeof input_payload === 'object' && !Array.isArray(input_payload)) {
-    if (
-      Object.prototype.hasOwnProperty.call(input_payload, 'input_payload') &&
-      Object.prototype.hasOwnProperty.call(input_payload, 'inputs')
-    ) {
+    const hasEnvelopeInputPayload = Object.prototype.hasOwnProperty.call(input_payload, 'input_payload');
+    const hasEnvelopeInputs = Object.prototype.hasOwnProperty.call(input_payload, 'inputs');
+
+    if (hasEnvelopeInputPayload && hasEnvelopeInputs) {
       const candidate_seed =
         input_payload.input_payload &&
         typeof input_payload.input_payload === 'object' &&
@@ -72,13 +73,28 @@ function normalizeRunInputEnvelope(input_payload) {
           ? input_payload.input_payload
           : {};
       const inputs = Array.isArray(input_payload.inputs) ? input_payload.inputs : [];
-      return { candidate_seed, inputs, isEnvelope: true };
+      const stage_id =
+        typeof input_payload?.__run_meta?.stage_id === 'string' && input_payload.__run_meta.stage_id.trim()
+          ? input_payload.__run_meta.stage_id.trim()
+          : null;
+      const request_execution_mode =
+        typeof input_payload?.__run_meta?.execution_mode === 'string' && input_payload.__run_meta.execution_mode.trim()
+          ? input_payload.__run_meta.execution_mode.trim()
+          : null;
+      return { candidate_seed, inputs, isEnvelope: true, stage_id, request_execution_mode };
     }
   }
-  return { candidate_seed: input_payload || {}, inputs: [], isEnvelope: false };
+  return {
+    candidate_seed: input_payload || {},
+    inputs: [],
+    isEnvelope: false,
+    stage_id: null,
+    request_execution_mode: null
+  };
 }
 
 function buildSafetyIngestCandidate(workingPayload, validationReport) {
+  console.log('[trace] entering runOrchestrator.buildSafetyIngestCandidate');
   const auditCase =
     workingPayload?.audit_case && typeof workingPayload.audit_case === 'object'
       ? workingPayload.audit_case
@@ -134,6 +150,7 @@ function cloneJsonValue(value) {
 }
 
 function removeSafetyOnlyFields(value) {
+  console.log('[trace] entering runOrchestrator.removeSafetyOnlyFields');
   if (Array.isArray(value)) {
     return value.map((item) => removeSafetyOnlyFields(item));
   }
@@ -151,6 +168,7 @@ function removeSafetyOnlyFields(value) {
 }
 
 function isSafetyIngestCandidate(candidate) {
+  console.log('[trace] entering runOrchestrator.isSafetyIngestCandidate');
   return !!(
     candidate &&
     typeof candidate === 'object' &&
@@ -160,10 +178,404 @@ function isSafetyIngestCandidate(candidate) {
 }
 
 function selectDomainExecutionPath(domain_id) {
+  console.log('[trace] entering runOrchestrator.selectDomainExecutionPath');
   if (domain_id === 'safety') return 'safety';
   if (domain_id === 'healthcare') return 'healthcare';
   if (domain_id === 'research') return 'research';
   return typeof domain_id === 'string' && domain_id.trim() ? domain_id.trim() : 'healthcare';
+}
+
+function resolvePdrExecutionMode() {
+  return String(process.env.PDR_EXECUTION_MODE || 'mock').trim().toLowerCase();
+}
+
+function isResearchExtractCandidateShape(candidate) {
+  return !!(
+    candidate &&
+    typeof candidate === 'object' &&
+    !Array.isArray(candidate) &&
+    typeof candidate.audit_case_id === 'string' &&
+    candidate.research_request &&
+    typeof candidate.research_request === 'object' &&
+    !Array.isArray(candidate.research_request) &&
+    Array.isArray(candidate.artifact_ids) &&
+    !Object.prototype.hasOwnProperty.call(candidate, 'claims') &&
+    !Object.prototype.hasOwnProperty.call(candidate, 'citations')
+  );
+}
+
+function parseJsonObjectFromText(text) {
+  if (typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (err) {
+    // fallthrough to fenced extraction
+  }
+
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed.slice(start, end + 1));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (err) {
+    return null;
+  }
+
+  return null;
+}
+
+function normalizeResearchExtractOutput(rawOutput = {}) {
+  const claimsRaw = Array.isArray(rawOutput.claims) ? rawOutput.claims : [];
+  const citationsRaw = Array.isArray(rawOutput.citations) ? rawOutput.citations : [];
+
+  const claims = claimsRaw
+    .map((claim) => {
+      if (!claim || typeof claim !== 'object' || Array.isArray(claim)) return null;
+
+      const text = String(
+        claim.text || claim.statement || claim.claim || claim.summary || ''
+      ).trim();
+      if (!text) return null;
+
+      const source = claim.source == null ? null : String(claim.source).trim() || null;
+      const citation_id = claim.citation_id == null ? null : String(claim.citation_id).trim() || null;
+      const confidenceNumber =
+        typeof claim.confidence === 'number' ? claim.confidence : Number(claim.confidence);
+      const confidence = Number.isFinite(confidenceNumber)
+        ? Math.max(0, Math.min(1, confidenceNumber))
+        : null;
+
+      return {
+        text,
+        source,
+        citation_id,
+        confidence
+      };
+    })
+    .filter(Boolean);
+
+  const citations = citationsRaw
+    .map((citation, index) => {
+      if (!citation || typeof citation !== 'object' || Array.isArray(citation)) return null;
+
+      const id = String(citation.id || `citation-${index + 1}`).trim();
+      const source = String(citation.source || citation.title || citation.name || '').trim();
+      if (!source) return null;
+
+      const locator = citation.locator == null ? null : String(citation.locator).trim() || null;
+      const text = citation.text == null ? null : String(citation.text).trim() || null;
+
+      return {
+        id,
+        source,
+        locator,
+        text
+      };
+    })
+    .filter(Boolean);
+
+  return { claims, citations };
+}
+
+function buildDeterministicResearchExtractOutput(candidate = {}) {
+  const prompt = String(candidate?.research_request?.prompt || '').trim();
+  if (!prompt) {
+    return { claims: [], citations: [] };
+  }
+
+  const sourceMatchers = [
+    {
+      id: 'citation-nist-ai-rmf',
+      source: 'NIST AI Risk Management Framework',
+      test: /\bnist\b|\bai\s*rmf\b/i
+    },
+    {
+      id: 'citation-iso-42001',
+      source: 'ISO/IEC 42001',
+      test: /\biso(?:\/iec)?\s*42001\b/i
+    },
+    {
+      id: 'citation-eu-ai-act',
+      source: 'EU AI Act',
+      test: /\beu ai act\b|european union ai act/i
+    }
+  ];
+
+  const citations = sourceMatchers
+    .filter((matcher) => matcher.test.test(prompt))
+    .map((matcher) => ({
+      id: matcher.id,
+      source: matcher.source,
+      locator: null,
+      text: null
+    }));
+
+  const claims = citations.map((citation) => ({
+    text: `${citation.source} is relevant to enterprise AI governance controls and risk management.`,
+    source: citation.source,
+    citation_id: citation.id,
+    confidence: 0.8
+  }));
+
+  return { claims, citations };
+}
+
+function resolveResearchRequestText(candidate = {}) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return '';
+
+  if (typeof candidate.research_request === 'string') {
+    return candidate.research_request.trim();
+  }
+
+  if (
+    candidate.research_request &&
+    typeof candidate.research_request === 'object' &&
+    !Array.isArray(candidate.research_request)
+  ) {
+    return String(candidate.research_request.prompt || '').trim();
+  }
+
+  return '';
+}
+
+function applyResearchExtractFallbackIfNeeded(candidate = {}, normalizedOutput = {}) {
+  const claims = Array.isArray(normalizedOutput.claims) ? [...normalizedOutput.claims] : [];
+  const citations = Array.isArray(normalizedOutput.citations) ? [...normalizedOutput.citations] : [];
+  const requestText = resolveResearchRequestText(candidate);
+
+  if (claims.length === 0) {
+    claims.push({
+      text: requestText,
+      confidence: 0.5
+    });
+  }
+
+  if (citations.length === 0) {
+    citations.push({
+      id: 'source-1',
+      source: 'user_input',
+      text: requestText
+    });
+  }
+
+  return { claims, citations };
+}
+
+async function callOpenAiResearchExtract({ candidate, systemPrompt = '' }) {
+  const apiKey = process.env.PDR_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const model = process.env.PDR_OPENAI_MODEL || 'gpt-4.1-mini';
+  const baseUrl = (process.env.PDR_OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const prompt = String(candidate?.research_request?.prompt || '').trim();
+  if (!prompt) return null;
+
+  const instructions = String(systemPrompt || '').trim() || [
+    'Extract grounded claims and citations from the user prompt.',
+    'Return JSON with keys claims[] and citations[].',
+    'Claims fields: text, source(optional), citation_id(optional), confidence(optional 0..1).',
+    'Citations fields: id, source, locator(optional), text(optional).',
+    'Do not invent unverifiable details.'
+  ].join(' ');
+
+  const userPayload = {
+    audit_case_id: candidate.audit_case_id || null,
+    prompt,
+    artifact_ids: Array.isArray(candidate.artifact_ids) ? candidate.artifact_ids : []
+  };
+
+  const response = await fetch(`${baseUrl}/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        { role: 'system', content: instructions },
+        { role: 'user', content: JSON.stringify(userPayload) }
+      ],
+      text: {
+        format: {
+          type: 'json_object'
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch (err) {
+    return null;
+  }
+
+  const outputText =
+    body?.output_text
+    || (Array.isArray(body?.output)
+      ? body.output
+          .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
+          .map((content) => content?.text || '')
+          .join('\n')
+      : '');
+
+  const parsed = parseJsonObjectFromText(outputText);
+  if (!parsed) return null;
+
+  return normalizeResearchExtractOutput(parsed);
+}
+
+async function maybeEnrichResearchExtractCandidate({ domain_id, stage_id, candidate, input_payload }) {
+  console.log('[trace] entering runOrchestrator.maybeEnrichResearchExtractCandidate');
+  console.log('[trace] MS63.18 condition check', {
+    domain_id,
+    stage_id,
+    execution_mode: resolvePdrExecutionMode()
+  });
+  if (domain_id !== 'research') return candidate;
+  if (stage_id !== 'extract') return candidate;
+  if (resolvePdrExecutionMode() !== 'live') return candidate;
+  if (!isResearchExtractCandidateShape(candidate)) return candidate;
+
+  console.log('[research] MS63.17 active');
+  console.log('[research] hasOpenAiKey', !!process.env.OPENAI_API_KEY);
+
+  const llmOutput = await callOpenAiResearchExtract({
+    candidate,
+    systemPrompt: input_payload?.system_prompt
+  });
+
+  const normalizedOutput = llmOutput || buildDeterministicResearchExtractOutput(candidate);
+  const fallbackOutput = applyResearchExtractFallbackIfNeeded(candidate, normalizedOutput);
+  if (
+    fallbackOutput.claims.length !== normalizedOutput.claims.length ||
+    fallbackOutput.citations.length !== normalizedOutput.citations.length
+  ) {
+    console.log('[research] extract_fallback_applied', {
+      claims_count: fallbackOutput.claims.length,
+      citations_count: fallbackOutput.citations.length
+    });
+  }
+
+  const nextCandidate = {
+    ...candidate,
+    claims: fallbackOutput.claims,
+    citations: fallbackOutput.citations
+  };
+
+  console.log('[research] extract_llm_output', {
+    claims_count: nextCandidate.claims.length,
+    citations_count: nextCandidate.citations.length
+  });
+
+  return nextCandidate;
+}
+
+function resolveFirstResearchClaimText(candidate = {}) {
+  const claims = Array.isArray(candidate?.claims) ? candidate.claims : [];
+  for (const claim of claims) {
+    if (typeof claim === 'string' && claim.trim()) return claim.trim();
+    if (claim && typeof claim === 'object' && !Array.isArray(claim)) {
+      const text = String(claim.text || claim.statement || claim.claim || '').trim();
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+function hasStructuredReportSections(candidate = {}) {
+  const sections = candidate?.structured_report?.sections;
+  return Array.isArray(sections) && sections.length > 0;
+}
+
+async function maybeEnrichResearchSynthesizeCandidate({ domain_id, stage_id, candidate }) {
+  if (domain_id !== 'research') return candidate;
+  if (stage_id !== 'synthesize') return candidate;
+
+  if (hasStructuredReportSections(candidate)) {
+    return candidate;
+  }
+
+  const requestText = resolveResearchRequestText(candidate);
+  const firstClaimText = resolveFirstResearchClaimText(candidate);
+  const content = requestText || firstClaimText;
+
+  const nextCandidate = {
+    ...candidate,
+    structured_report: {
+      sections: [
+        {
+          title: 'Summary',
+          content
+        }
+      ]
+    }
+  };
+
+  if (!String(nextCandidate.executive_summary || '').trim() && firstClaimText) {
+    nextCandidate.executive_summary = firstClaimText;
+  }
+
+  console.log('[research] synthesize_fallback_applied', {
+    has_sections: true,
+    section_count: nextCandidate.structured_report.sections.length
+  });
+
+  return nextCandidate;
+}
+
+function getSchemaExpectedKeysForCandidate(schema, candidate) {
+  console.log('[trace] entering runOrchestrator.getSchemaExpectedKeysForCandidate');
+  if (!schema || typeof schema !== 'object') return [];
+
+  if (schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)) {
+    return Object.keys(schema.properties);
+  }
+
+  if (Array.isArray(schema.oneOf)) {
+    let bestMatch = null;
+    for (const branch of schema.oneOf) {
+      if (!branch || typeof branch !== 'object') continue;
+      const required = Array.isArray(branch.required) ? branch.required : [];
+      const candidateKeys =
+        candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+          ? Object.keys(candidate)
+          : [];
+      const matchesRequired = required.every((key) => candidateKeys.includes(key));
+
+      if (!matchesRequired || !branch.properties || typeof branch.properties !== 'object') {
+        continue;
+      }
+
+      if (!bestMatch || required.length > bestMatch.requiredCount) {
+        bestMatch = {
+          requiredCount: required.length,
+          keys: Object.keys(branch.properties)
+        };
+      }
+    }
+
+    if (bestMatch) {
+      return bestMatch.keys;
+    }
+  }
+
+  return [];
 }
 
 async function loadArtifactMeta(artifact_id) {
@@ -401,6 +813,7 @@ function attemptRepair({ previous_output, validation_report, schema }) {
 }
 
 async function executeRun(run_id) {
+  console.log('[trace] entering runOrchestrator.executeRun');
   try {
     // Load run record (include working_payload and repair_json)
     const [rows] = await pool.execute(
@@ -423,7 +836,8 @@ async function executeRun(run_id) {
       : {};
 
     // MS15A: normalize legacy payload vs envelope
-    const { candidate_seed, inputs } = normalizeRunInputEnvelope(input_payload);
+    const { candidate_seed, inputs, stage_id } = normalizeRunInputEnvelope(input_payload);
+    console.log('[trace] executeRun start', { domain_id, stage_id });
 
     // working_payload: parse if present, else use input_payload
     let candidate =
@@ -432,6 +846,18 @@ async function executeRun(run_id) {
         : typeof run.working_payload === 'string'
           ? JSON.parse(run.working_payload)
           : run.working_payload;
+
+    candidate = await maybeEnrichResearchExtractCandidate({
+      domain_id,
+      stage_id,
+      candidate,
+      input_payload
+    });
+    candidate = await maybeEnrichResearchSynthesizeCandidate({
+      domain_id,
+      stage_id,
+      candidate
+    });
 
     const original_candidate_seed = candidate_seed;
 
@@ -678,6 +1104,27 @@ async function executeRun(run_id) {
       finalCandidate.validation_report = finalValidationReport;
     } else if (domainPath !== 'safety') {
       finalCandidate = removeSafetyOnlyFields(workingPayload);
+      const finalCandidateKeys =
+        finalCandidate && typeof finalCandidate === 'object' && !Array.isArray(finalCandidate)
+          ? Object.keys(finalCandidate)
+          : [];
+      const schemaExpectedKeys = getSchemaExpectedKeysForCandidate(contract.schema_json, finalCandidate);
+
+      if (
+        domain_id === 'healthcare' &&
+        finalCandidate &&
+        typeof finalCandidate === 'object' &&
+        Object.prototype.hasOwnProperty.call(finalCandidate, 'audit_case_id') &&
+        (
+          Object.prototype.hasOwnProperty.call(finalCandidate, 'findings') ||
+          Object.prototype.hasOwnProperty.call(finalCandidate, 'clarified_findings')
+        )
+      ) {
+        console.log('[clarify] finalCandidate_validation', {
+          keys: finalCandidateKeys,
+          schema_expected_keys: schemaExpectedKeys
+        });
+      }
 
       const { ok, issues } = validateAgainstSchema(contract.schema_json, finalCandidate);
       const pass = !!ok;
@@ -694,6 +1141,12 @@ async function executeRun(run_id) {
       };
       finalPass = pass;
     }
+
+    const returningCandidateKeys =
+      finalCandidate && typeof finalCandidate === 'object' && !Array.isArray(finalCandidate)
+        ? Object.keys(finalCandidate)
+        : [];
+    console.log('[trace] executeRun returning candidate keys', returningCandidateKeys);
 
     // Compute final output hash (include input_hash linkage)
     const output_for_hash = {
@@ -770,6 +1223,12 @@ module.exports = {
   __private: {
     isSafetyIngestCandidate,
     selectDomainExecutionPath,
-    removeSafetyOnlyFields
+    removeSafetyOnlyFields,
+    isResearchExtractCandidateShape,
+    normalizeResearchExtractOutput,
+    buildDeterministicResearchExtractOutput,
+    applyResearchExtractFallbackIfNeeded,
+    maybeEnrichResearchExtractCandidate,
+    maybeEnrichResearchSynthesizeCandidate
   }
 };

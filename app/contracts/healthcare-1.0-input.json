@@ -1,68 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "audit_case": {
+  "oneOf": [
+    {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "audit_case_id": { "type": "string", "minLength": 1 },
-        "case_number": { "type": "string", "minLength": 1 },
-        "title": { "type": "string", "minLength": 1 },
-        "company_name": { "type": "string", "minLength": 1 },
-        "site_name": { "type": "string", "minLength": 1 },
-        "site_location": { "type": "string", "minLength": 1 },
-        "auditor_name": { "type": "string", "minLength": 1 },
-        "audit_date": { "type": "string", "minLength": 1 }
-      },
-      "required": [
-        "audit_case_id",
-        "case_number",
-        "title",
-        "company_name",
-        "site_name",
-        "site_location",
-        "auditor_name",
-        "audit_date"
-      ]
-    },
-    "uploaded_images": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "image_id": { "type": "string", "minLength": 1 },
-          "file_name": { "type": "string", "minLength": 1 },
-          "file_path": { "type": "string", "minLength": 1 },
-          "mime_type": { "type": "string", "minLength": 1 },
-          "file_size_bytes": { "type": "integer", "minimum": 1 },
-          "sha256_hash": { "type": "string", "minLength": 1 },
-          "sort_order": { "type": "integer", "minimum": 1 }
-        },
-        "required": [
-          "image_id",
-          "file_name",
-          "file_path",
-          "mime_type",
-          "file_size_bytes",
-          "sha256_hash",
-          "sort_order"
-        ]
-      }
-    },
-    "inputs": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "text": {
-          "type": [
-            "string",
-            "null"
+        "audit_case": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "audit_case_id": { "type": "string", "minLength": 1 },
+            "case_number": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 },
+            "company_name": { "type": "string", "minLength": 1 },
+            "site_name": { "type": "string", "minLength": 1 },
+            "site_location": { "type": "string", "minLength": 1 },
+            "auditor_name": { "type": "string", "minLength": 1 },
+            "audit_date": { "type": "string", "minLength": 1 }
+          },
+          "required": [
+            "audit_case_id",
+            "case_number",
+            "title",
+            "company_name",
+            "site_name",
+            "site_location",
+            "auditor_name",
+            "audit_date"
           ]
         },
-        "images": {
+        "uploaded_images": {
           "type": "array",
           "items": {
             "type": "object",
@@ -87,37 +54,204 @@
             ]
           }
         },
-        "artifacts": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "artifact_id": { "type": "string", "minLength": 1 },
-              "source_image_id": {
-                "type": [
-                  "string",
-                  "null"
+        "inputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "images": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "image_id": { "type": "string", "minLength": 1 },
+                  "file_name": { "type": "string", "minLength": 1 },
+                  "file_path": { "type": "string", "minLength": 1 },
+                  "mime_type": { "type": "string", "minLength": 1 },
+                  "file_size_bytes": { "type": "integer", "minimum": 1 },
+                  "sha256_hash": { "type": "string", "minLength": 1 },
+                  "sort_order": { "type": "integer", "minimum": 1 }
+                },
+                "required": [
+                  "image_id",
+                  "file_name",
+                  "file_path",
+                  "mime_type",
+                  "file_size_bytes",
+                  "sha256_hash",
+                  "sort_order"
                 ]
               }
             },
-            "required": [
-              "artifact_id",
-              "source_image_id"
-            ]
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "artifact_id": { "type": "string", "minLength": 1 },
+                  "source_image_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "artifact_id",
+                  "source_image_id"
+                ]
+              }
+            }
+          },
+          "required": [
+            "text",
+            "images",
+            "artifacts"
+          ]
+        }
+      },
+      "required": [
+        "audit_case",
+        "uploaded_images",
+        "inputs"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audit_case_id": { "type": "string", "minLength": 1 },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "finding_id": { "type": ["string", "null"] },
+              "source_image_id": { "type": ["string", "null"] },
+              "hazard_code": { "type": ["string", "null"] },
+              "hazard_type": { "type": ["string", "null"] },
+              "severity": { "type": ["string", "null"] },
+              "confidence_score": { "type": ["number", "null"] },
+              "description": { "type": ["string", "null"] },
+              "evidence_notes": { "type": ["string", "null"] },
+              "confidence": { "type": ["number", "null"] },
+              "notes": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "clarified_findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": { "type": ["number", "null"] },
+            "notes": { "type": ["string", "null"] }
           }
         }
       },
       "required": [
-        "text",
-        "images",
-        "artifacts"
+        "audit_case_id",
+        "findings"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audit_case_id": { "type": "string", "minLength": 1 },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "intervention_guidelines": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "acuity_scale": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "audit_case_id",
+        "findings",
+        "assumptions",
+        "intervention_guidelines",
+        "acuity_scale"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audit_case_id": { "type": "string", "minLength": 1 },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "evidence_references": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "report_style_guide": {
+          "type": [
+            "string",
+            "object",
+            "null"
+          ]
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "required": [
+        "audit_case_id",
+        "findings",
+        "risks",
+        "evidence_references",
+        "report_style_guide"
       ]
     }
-  },
-  "required": [
-    "audit_case",
-    "uploaded_images",
-    "inputs"
   ]
 }

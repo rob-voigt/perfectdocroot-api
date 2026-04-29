@@ -128,12 +128,17 @@ router.post(
   rateLimit({ windowMs: 60_000, max: 20 }),
   async (req, res, next) => {
     try {
+      console.log('[trace] entering runs.routes POST /v1/runs handler');
       const body = req.body || {};
 
       const domain_id = typeof body.domain_id === 'string' ? body.domain_id.trim() : '';
       const contract_version =
         typeof body.contract_version === 'string'
           ? body.contract_version.trim()
+          : '';
+      const stage_id =
+        typeof body.stage_id === 'string'
+          ? body.stage_id.trim()
           : '';
 
       const input_payload =
@@ -153,6 +158,14 @@ router.post(
         return res.status(400).json({
           error: 'validation_error',
           message: 'domain_id is required',
+          requestId: req.requestId
+        });
+      }
+
+      if (!stage_id) {
+        return res.status(400).json({
+          error: 'validation_error',
+          message: 'stage_id is required',
           requestId: req.requestId
         });
       }
@@ -179,6 +192,7 @@ router.post(
         domain_id,
         contract_version,
         input_payload: stored_input_payload,
+        stage_id,
         correlation_id: req.requestId,
         execution_mode,
         repair,
