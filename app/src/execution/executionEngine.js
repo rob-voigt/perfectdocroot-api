@@ -53,7 +53,6 @@ function log(event, fields = {}) {
  * (either by worker claim or by sync route logic).
  */
 async function processRun(run_id) {
-  console.log('[trace] entering executionEngine.processRun');
   if (activeRuns >= maxConcurrentRuns()) {
     log('run_start_delayed_concurrency', {
       run_id,

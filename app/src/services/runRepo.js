@@ -123,7 +123,6 @@ async function createRun({
   repair = {},
   status: statusOverride
 } = {}) {
-  console.log('[trace] entering runRepo.createRun');
   const normalized_domain_id =
     typeof domain_id === 'string' ? domain_id.trim() : '';
 
@@ -288,13 +287,6 @@ async function getRun(id) {
   if (!rows || rows.length === 0) return null;
 
   const r = rows[0];
-
-  console.log('DEBUG created_at type', {
-  type: typeof r.created_at,
-  isDate: r.created_at instanceof Date,
-  value: r.created_at
-  });
-  
   const input_payload =
     r.input_payload ? (typeof r.input_payload === 'string' ? JSON.parse(r.input_payload) : r.input_payload) : {};
 

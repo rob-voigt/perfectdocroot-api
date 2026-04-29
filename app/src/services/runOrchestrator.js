@@ -59,7 +59,6 @@ function isSha256Hex(s) {
 }
 
 function normalizeRunInputEnvelope(input_payload) {
-  console.log('[trace] entering runOrchestrator.normalizeRunInputEnvelope');
   // MS15A: either legacy (candidate object), or envelope { input_payload, inputs }
   if (input_payload && typeof input_payload === 'object' && !Array.isArray(input_payload)) {
     const hasEnvelopeInputPayload = Object.prototype.hasOwnProperty.call(input_payload, 'input_payload');
@@ -94,7 +93,6 @@ function normalizeRunInputEnvelope(input_payload) {
 }
 
 function buildSafetyIngestCandidate(workingPayload, validationReport) {
-  console.log('[trace] entering runOrchestrator.buildSafetyIngestCandidate');
   const auditCase =
     workingPayload?.audit_case && typeof workingPayload.audit_case === 'object'
       ? workingPayload.audit_case
@@ -150,7 +148,6 @@ function cloneJsonValue(value) {
 }
 
 function removeSafetyOnlyFields(value) {
-  console.log('[trace] entering runOrchestrator.removeSafetyOnlyFields');
   if (Array.isArray(value)) {
     return value.map((item) => removeSafetyOnlyFields(item));
   }
@@ -168,7 +165,6 @@ function removeSafetyOnlyFields(value) {
 }
 
 function isSafetyIngestCandidate(candidate) {
-  console.log('[trace] entering runOrchestrator.isSafetyIngestCandidate');
   return !!(
     candidate &&
     typeof candidate === 'object' &&
@@ -178,7 +174,6 @@ function isSafetyIngestCandidate(candidate) {
 }
 
 function selectDomainExecutionPath(domain_id) {
-  console.log('[trace] entering runOrchestrator.selectDomainExecutionPath');
   if (domain_id === 'safety') return 'safety';
   if (domain_id === 'healthcare') return 'healthcare';
   if (domain_id === 'research') return 'research';
@@ -356,7 +351,9 @@ function applyResearchExtractFallbackIfNeeded(candidate = {}, normalizedOutput =
   if (claims.length === 0) {
     claims.push({
       text: requestText,
-      confidence: 0.5
+      statement: requestText,
+      confidence: 0.5,
+      confidence_score: 0.5
     });
   }
 
@@ -441,19 +438,10 @@ async function callOpenAiResearchExtract({ candidate, systemPrompt = '' }) {
 }
 
 async function maybeEnrichResearchExtractCandidate({ domain_id, stage_id, candidate, input_payload }) {
-  console.log('[trace] entering runOrchestrator.maybeEnrichResearchExtractCandidate');
-  console.log('[trace] MS63.18 condition check', {
-    domain_id,
-    stage_id,
-    execution_mode: resolvePdrExecutionMode()
-  });
   if (domain_id !== 'research') return candidate;
   if (stage_id !== 'extract') return candidate;
   if (resolvePdrExecutionMode() !== 'live') return candidate;
   if (!isResearchExtractCandidateShape(candidate)) return candidate;
-
-  console.log('[research] MS63.17 active');
-  console.log('[research] hasOpenAiKey', !!process.env.OPENAI_API_KEY);
 
   const llmOutput = await callOpenAiResearchExtract({
     candidate,
@@ -477,11 +465,6 @@ async function maybeEnrichResearchExtractCandidate({ domain_id, stage_id, candid
     claims: fallbackOutput.claims,
     citations: fallbackOutput.citations
   };
-
-  console.log('[research] extract_llm_output', {
-    claims_count: nextCandidate.claims.length,
-    citations_count: nextCandidate.citations.length
-  });
 
   return nextCandidate;
 }
@@ -511,24 +494,53 @@ async function maybeEnrichResearchSynthesizeCandidate({ domain_id, stage_id, can
     return candidate;
   }
 
-  const requestText = resolveResearchRequestText(candidate);
   const firstClaimText = resolveFirstResearchClaimText(candidate);
-  const content = requestText || firstClaimText;
+  const requestText = resolveResearchRequestText(candidate);
+  const content = firstClaimText || requestText;
+
+  const limitations = Array.isArray(candidate?.limitations) ? [...candidate.limitations] : [];
+  const assumptions = Array.isArray(candidate?.assumptions) ? [...candidate.assumptions] : [];
+  const fallbackLimitations = [
+    'Fallback summary generated from user-provided research request.',
+    'No external source artifacts were provided.'
+  ];
+  for (const limitation of fallbackLimitations) {
+    if (!limitations.includes(limitation)) {
+      limitations.push(limitation);
+    }
+  }
+  const fallbackAssumptionText = 'Output may be limited without external artifacts.';
+  const hasFallbackAssumption = assumptions.some((assumption) => {
+    if (!assumption || typeof assumption !== 'object' || Array.isArray(assumption)) return false;
+    return String(assumption.assumption_text || '').trim() === fallbackAssumptionText;
+  });
+  if (!hasFallbackAssumption) {
+    assumptions.push({
+      assumption_text: fallbackAssumptionText,
+      clarification_needed: false,
+      status: 'open'
+    });
+  }
 
   const nextCandidate = {
     ...candidate,
     structured_report: {
+      ...(candidate?.structured_report && typeof candidate.structured_report === 'object' && !Array.isArray(candidate.structured_report)
+        ? candidate.structured_report
+        : {}),
       sections: [
         {
           title: 'Summary',
           content
         }
       ]
-    }
+    },
+    limitations,
+    assumptions
   };
 
-  if (!String(nextCandidate.executive_summary || '').trim() && firstClaimText) {
-    nextCandidate.executive_summary = firstClaimText;
+  if (!String(nextCandidate.executive_summary || '').trim() && content) {
+    nextCandidate.executive_summary = content;
   }
 
   console.log('[research] synthesize_fallback_applied', {
@@ -540,7 +552,6 @@ async function maybeEnrichResearchSynthesizeCandidate({ domain_id, stage_id, can
 }
 
 function getSchemaExpectedKeysForCandidate(schema, candidate) {
-  console.log('[trace] entering runOrchestrator.getSchemaExpectedKeysForCandidate');
   if (!schema || typeof schema !== 'object') return [];
 
   if (schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)) {
@@ -813,7 +824,6 @@ function attemptRepair({ previous_output, validation_report, schema }) {
 }
 
 async function executeRun(run_id) {
-  console.log('[trace] entering runOrchestrator.executeRun');
   try {
     // Load run record (include working_payload and repair_json)
     const [rows] = await pool.execute(
@@ -837,7 +847,6 @@ async function executeRun(run_id) {
 
     // MS15A: normalize legacy payload vs envelope
     const { candidate_seed, inputs, stage_id } = normalizeRunInputEnvelope(input_payload);
-    console.log('[trace] executeRun start', { domain_id, stage_id });
 
     // working_payload: parse if present, else use input_payload
     let candidate =
@@ -1141,12 +1150,6 @@ async function executeRun(run_id) {
       };
       finalPass = pass;
     }
-
-    const returningCandidateKeys =
-      finalCandidate && typeof finalCandidate === 'object' && !Array.isArray(finalCandidate)
-        ? Object.keys(finalCandidate)
-        : [];
-    console.log('[trace] executeRun returning candidate keys', returningCandidateKeys);
 
     // Compute final output hash (include input_hash linkage)
     const output_for_hash = {

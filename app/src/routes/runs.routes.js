@@ -128,7 +128,6 @@ router.post(
   rateLimit({ windowMs: 60_000, max: 20 }),
   async (req, res, next) => {
     try {
-      console.log('[trace] entering runs.routes POST /v1/runs handler');
       const body = req.body || {};
 
       const domain_id = typeof body.domain_id === 'string' ? body.domain_id.trim() : '';

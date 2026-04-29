@@ -117,7 +117,7 @@ test('maybeEnrichResearchExtractCandidate applies deterministic fallback when cl
       stage_id: 'extract',
       candidate: {
         audit_case_id: 'case-r-3',
-        research_request: { prompt: '' },
+        research_request: { prompt: 'Research governance controls for enterprise AI systems.' },
         artifact_ids: []
       },
       input_payload: {}
@@ -125,11 +125,13 @@ test('maybeEnrichResearchExtractCandidate applies deterministic fallback when cl
 
     assert.equal(candidate.claims.length, 1);
     assert.equal(candidate.citations.length, 1);
-    assert.equal(candidate.claims[0].text, '');
+    assert.equal(candidate.claims[0].text, 'Research governance controls for enterprise AI systems.');
+    assert.equal(candidate.claims[0].statement, 'Research governance controls for enterprise AI systems.');
     assert.equal(candidate.claims[0].confidence, 0.5);
+    assert.equal(candidate.claims[0].confidence_score, 0.5);
     assert.equal(candidate.citations[0].id, 'source-1');
     assert.equal(candidate.citations[0].source, 'user_input');
-    assert.equal(candidate.citations[0].text, '');
+    assert.equal(candidate.citations[0].text, 'Research governance controls for enterprise AI systems.');
   } finally {
     if (previousMode === undefined) delete process.env.PDR_EXECUTION_MODE; else process.env.PDR_EXECUTION_MODE = previousMode;
     if (previousOpenAiKey === undefined) delete process.env.PDR_OPENAI_API_KEY; else process.env.PDR_OPENAI_API_KEY = previousOpenAiKey;
@@ -190,6 +192,24 @@ test('maybeEnrichResearchSynthesizeCandidate adds minimum structured_report sect
   assert.equal(candidate.structured_report.sections[0].title, 'Summary');
   assert.equal(candidate.structured_report.sections[0].content, 'Claim summary text.');
   assert.equal(candidate.executive_summary, 'Claim summary text.');
+  assert.ok(candidate.limitations.includes('Fallback summary generated from user-provided research request.'));
+  assert.ok(candidate.limitations.includes('No external source artifacts were provided.'));
+  assert.ok(candidate.assumptions.some((a) => a.assumption_text === 'Output may be limited without external artifacts.'));
+});
+
+test('maybeEnrichResearchSynthesizeCandidate falls back to research_request text when claim text missing', async () => {
+  const candidate = await __private.maybeEnrichResearchSynthesizeCandidate({
+    domain_id: 'research',
+    stage_id: 'synthesize',
+    candidate: {
+      audit_case_id: 'case-r-7',
+      research_request: { prompt: 'Analyze ISO 42001 controls for governance.' },
+      claims: [{ note: 'missing text field' }]
+    }
+  });
+
+  assert.equal(candidate.structured_report.sections[0].content, 'Analyze ISO 42001 controls for governance.');
+  assert.equal(candidate.executive_summary, 'Analyze ISO 42001 controls for governance.');
 });
 
 test('maybeEnrichResearchSynthesizeCandidate preserves existing valid sections', async () => {
